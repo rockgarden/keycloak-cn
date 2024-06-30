@@ -1,0 +1,173 @@
+[[_enforcer_claim_information_point]]
+= Claim信息点
+
+Claim信息点（CIP）负责解析权利要求，并将这些权利要求推送到 {project_name} 服务器，以便为策略提供更多有关访问上下文的信息。
+以向策略提供更多有关访问上下文的信息。它们可以定义为
+可将它们定义为策略执行器的配置选项，以解析来自不同来源的请求，如
+
+* HTTP 请求（参数、标头、正文等）
+* 外部 HTTP 服务
+* 配置中定义的静态值
+* 通过实施claim信息提供者 SPI 的任何其他来源
+
+在向 {project_name} 服务器推送请求时，策略不仅可以根据用户身份做出决定，还可以根据以下因素做出决定
+根据特定事务中的谁、什么、为什么、何时、何地和何事，将上下文和内容考虑在内。这就是基于上下文的授权，以及如何使用运行时信息来支持细粒度授权决策。
+
+== 从HTTP请求中获取信息
+
+下面的几个示例展示了如何从 HTTP 请求中提取声明：
+
+.keycloak.json
+[source,json]
+----
+{
+  "paths": [
+    {
+      "path": "/protected/resource",
+      "claim-information-point": {
+        "claims": {
+          "claim-from-request-parameter": "{request.parameter['a']}",
+          "claim-from-header": "{request.header['b']}",
+          "claim-from-cookie": "{request.cookie['c']}",
+          "claim-from-remoteAddr": "{request.remoteAddr}",
+          "claim-from-method": "{request.method}",
+          "claim-from-uri": "{request.uri}",
+          "claim-from-relativePath": "{request.relativePath}",
+          "claim-from-secure": "{request.secure}",
+          "claim-from-json-body-object": "{request.body['/a/b/c']}",
+          "claim-from-json-body-array": "{request.body['/d/1']}",
+          "claim-from-body": "{request.body}",
+          "claim-from-static-value": "static value",
+          "claim-from-multiple-static-value": ["static", "value"],
+          "param-replace-multiple-placeholder": "Test {keycloak.access_token['/custom_claim/0']} and {request.parameter['a']}"
+        }
+      }
+    }
+  ]
+}
+----
+
+== 从外部 HTTP 服务获取信息
+
+下面的几个示例展示了如何从外部 HTTP 服务中提取请求：
+
+.keycloak.json
+[source,json]
+----
+{
+  "paths": [
+    {
+      "path": "/protected/resource",
+      "claim-information-point": {
+        "http": {
+          "claims": {
+            "claim-a": "/a",
+            "claim-d": "/d",
+            "claim-d0": "/d/0",
+            "claim-d-all": [
+              "/d/0",
+              "/d/1"
+            ]
+          },
+          "url": "http://mycompany/claim-provider",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "header-b": [
+              "header-b-value1",
+              "header-b-value2"
+            ],
+            "Authorization": "Bearer {keycloak.access_token}"
+          },
+          "parameters": {
+            "param-a": [
+              "param-a-value1",
+              "param-a-value2"
+            ],
+            "param-subject": "{keycloak.access_token['/sub']}",
+            "param-user-name": "{keycloak.access_token['/preferred_username']}",
+            "param-other-claims": "{keycloak.access_token['/custom_claim']}"
+          }
+        }
+      }
+    }
+  ]
+}
+----
+
+== 静态claims
+
+.keycloak.json
+[source,json]
+----
+{
+  "paths": [
+    {
+      "path": "/protected/resource",
+      "claim-information-point": {
+        "claims": {
+          "claim-from-static-value": "static value",
+          "claim-from-multiple-static-value": ["static", "value"]
+        }
+      }
+    }
+  ]
+}
+----
+
+== Claim信息提供者 SPI
+
+开发人员可使用索赔信息提供程序 SPI 来支持不同的索赔信息点，以防没有任何一个内置提供程序足以满足其要求时，开发人员可使用索赔信息提供程序 SPI 来支持不同的索赔信息点。
+
+例如，要实现一个新的 CIP 提供程序，您需要实现 `org.keycloak.adapters.authorization.ClaimInformationPointProviderFactory` 和 `ClaimInformationPointProviderFactory`。
+和`ClaimInformationPointProvider`，并在应用程序的类路径中提供`META-INF/services/org.keycloak.adapters.authorization.ClaimInformationPointProviderFactory`文件。
+
+org.keycloak.adapters.authorization.ClaimInformationPointProviderFactory` 实例：
+
+[source,java]
+----
+public class MyClaimInformationPointProviderFactory implements ClaimInformationPointProviderFactory<MyClaimInformationPointProvider> {
+
+    @Override
+    public String getName() {
+        return "my-claims";
+    }
+
+    @Override
+    public void init(PolicyEnforcer policyEnforcer) {
+
+    }
+
+    @Override
+    public MyClaimInformationPointProvider create(Map<String, Object> config) {
+        return new MyClaimInformationPointProvider(config);
+    }
+}
+----
+
+每个 CIP 提供程序都必须与一个名称相关联，正如上文在 "MyClaimInformationPointProviderFactory.getName" 方法中定义的那样。该名称将用于把配置从 `policy-enforcer` 配置中的 `claim-information-point` 部分映射到实现中。
+
+处理请求时，策略执行器将调用 MyClaimInformationPointProviderFactory.create 方法，以获取 MyClaimInformationPointProvider 的实例。调用时，为该特定 CIP 提供程序定义的任何配置（通过 claim-information-point（通过 claim-information-point）定义的任何配置都会以映射形式传递。
+
+索赔信息点提供程序 "示例：
+
+[source,java]
+----
+public class MyClaimInformationPointProvider implements ClaimInformationPointProvider {
+
+    private final Map<String, Object> config;
+
+    public MyClaimInformationPointProvider(Map<String, Object> config) {
+        this.config = config;
+    }
+
+    @Override
+    public Map<String, List<String>> resolve(HttpFacade httpFacade) {
+        Map<String, List<String>> claims = new HashMap<>();
+
+        // put whatever claim you want into the map
+
+        return claims;
+    }
+}
+----
