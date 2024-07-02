@@ -12,7 +12,7 @@
 
 [source,bash,subs="attributes+"]
 ----
-{containerCommand} run -itd -p 8090:8080 -e KEYCLOAK_ADMIN=keycloak -e KEYCLOAK_ADMIN_PASSWORD=keycloak quay.io/keycloak/keycloak:{version} start-dev
+{containerCommand} run -itd -m 3G -p 8090:8080 -e KEYCLOAK_ADMIN=keycloak -e KEYCLOAK_ADMIN_PASSWORD=keycloak quay.io/keycloak/keycloak:{version} start-dev
 ----
 
-此命令将以后台模式启动 {project_name}，在本地 8090 端口上的暴露，并创建一个初始管理员用户，用户名为 `keycloak`，密码为 `keycloak`。
+此命令将以后台模式启动 {project_name}，在本地 8090 端口上的暴露，并创建一个初始管理员用户，用户名为 `keycloak`，密码为 `keycloak`，通过 `-m 3G` 限制容器运行内存上限。
