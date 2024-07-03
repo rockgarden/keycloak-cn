@@ -1,0 +1,263 @@
+<#import "/templates/guide.adoc" as tmpl>
+<#import "/templates/kc.adoc" as kc>
+<#import "/templates/options.adoc" as opts>
+<#import "/templates/links.adoc" as links>
+<#import "/templates/profile.adoc" as profile>
+
+<@tmpl.guide
+title="Running {project_name} in a container"
+summary="Learn how to run {project_name} from a container image"
+includedOptions="db db-url db-username db-password features hostname https-key-store-file https-key-store-password health-enabled metrics-enabled">
+
+This {section} describes how to optimize and run the {project_name} container image to provide the best experience running a container.
+
+<@profile.ifProduct>
+
+警告：本章仅适用于构建在 OpenShift 环境中运行的映像。此映像仅支持 OpenShift 环境。如果在其他 Kubernetes 发行版中运行，则不受支持。
+
+</@profile.ifProduct>
+
+== 创建定制和优化的容器映像
+默认的 {project_name} 容器映像在发布后即可进行配置和优化。
+
+为了以最佳方式启动 {project_name} 容器，请在容器构建过程中运行 `build` 步骤来构建映像。
+这一步骤将节省容器映像后续每个启动阶段的时间。
+
+=== 编写优化的 {project_name} Dockerfile
+下面的 `Dockerfile` 创建了一个预配置的 {project_name} 映像，它启用了健康和度量端点、令牌交换功能并使用 PostgreSQL 数据库。
+
+.Dockerfile:
+[source,dockerfile,subs="attributes+"]
+----
+FROM quay.io/keycloak/keycloak:{containerlabel} as builder
+
+# Enable health and metrics support
+ENV KC_HEALTH_ENABLED=true
+ENV KC_METRICS_ENABLED=true
+
+# Configure a database vendor
+ENV KC_DB=postgres
+
+WORKDIR /opt/keycloak
+# for demonstration purposes only, please make sure to use proper certificates in production instead
+RUN keytool -genkeypair -storepass password -storetype PKCS12 -keyalg RSA -keysize 2048 -dname "CN=server" -alias server -ext "SAN:c=DNS:localhost,IP:127.0.0.1" -keystore conf/server.keystore
+RUN /opt/keycloak/bin/kc.sh build
+
+FROM quay.io/keycloak/keycloak:{containerlabel}
+COPY --from=builder /opt/keycloak/ /opt/keycloak/
+
+# change these values to point to a running postgres instance
+ENV KC_DB=postgres
+ENV KC_DB_URL=<DBURL>
+ENV KC_DB_USERNAME=<DBUSERNAME>
+ENV KC_DB_PASSWORD=<DBPASSWORD>
+ENV KC_HOSTNAME=localhost
+ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
+----
+
+构建过程包括多个阶段：
+
+* 运行 `build` 命令设置服务器构建选项，以创建优化的映像。
+* 将 `build` 阶段生成的文件复制到新镜像中。
+* 在最终映像中，会设置主机名和数据库的其他配置选项，这样在运行容器时就无需再次设置。
+* 在入口点中，`kc.sh` 允许访问所有分发子命令。
+
+要安装自定义提供程序，只需定义一个步骤，将 JAR 文件包含到 `/opt/keycloak/providers` 目录中。
+该步骤必须放在 `RUNs` `build` 命令的行之前，如下所示： 
+
+[source,dockerfile,subs="attributes+"]
+----
+# A example build step that downloads a JAR file from a URL and adds it to the providers directory
+FROM quay.io/keycloak/keycloak:{containerlabel} as builder
+
+...
+
+# Add the provider JAR file to the providers directory
+ADD --chown=keycloak:keycloak --chmod=644 <MY_PROVIDER_JAR_URL> /opt/keycloak/providers/myprovider.jar
+
+...
+
+# Context: RUN the build command
+RUN /opt/keycloak/bin/kc.sh build
+----
+
+=== Installing additional RPM packages
+
+如果你尝试在 `+FROM quay.io/keycloak/keycloak+` 阶段安装新软件，你会发现 `+microdnf+`、 `+dnf+`，甚至 `+rpm+` 都没有安装。此外，可用的软件包也很少，只够安装一个 `+bash+` shell 和运行 {project_name} 本身。这是由于采取了安全加固措施，减少了 {project_name} 容器的攻击面。
+
+首先，考虑你的用例是否能以另一种方式实现，从而避免在最终容器中安装新的 RPM：
+
+* Dockerfile 中的 `+RUN curl+` 指令可以替换为 `+ADD+`，因为该指令本机支持远程 URL。
+* 一些常见的 CLI 工具可以通过创造性地使用 Linux 文件系统来替代。例如，`+ip addr show tap0+` 变成 `+cat /sys/class/net/tap0/address+`
+* 需要 RPM 的任务可以移到镜像构建的前一阶段，并将结果复制过来。
+
+下面是一个例子。在前构建阶段运行 `+update-ca-trust+`，然后将结果向前复制：
+
+[source, dockerfile]
+----
+FROM registry.access.redhat.com/ubi9 AS ubi-micro-build
+COPY mycertificate.crt /etc/pki/ca-trust/source/anchors/mycertificate.crt
+RUN update-ca-trust
+
+FROM quay.io/keycloak/keycloak
+COPY --from=ubi-micro-build /etc/pki /etc/pki
+----
+
+It is possible to install new RPMs if absolutely required, following this two-stage pattern established by ubi-micro:
+
+[source, dockerfile]
+----
+FROM registry.access.redhat.com/ubi9 AS ubi-micro-build
+RUN mkdir -p /mnt/rootfs
+RUN dnf install --installroot /mnt/rootfs <package names go here> --releasever 9 --setopt install_weak_deps=false --nodocs -y && \
+    dnf --installroot /mnt/rootfs clean all && \
+    rpm --root /mnt/rootfs -e --nodeps setup
+
+FROM quay.io/keycloak/keycloak
+COPY --from=ubi-micro-build /mnt/rootfs /
+----
+
+This approach uses a chroot, `+/mnt/rootfs+`, so that only the packages you specify and their dependencies are installed, and so can be easily copied into the second stage without guesswork.
+
+WARNING: Some packages have a large tree of dependencies. By installing new RPMs you may unintentionally increase the container's attack surface. Check the list of installed packages carefully.
+
+=== 构建容器镜像
+要构建实际的容器映像，请在包含 Dockerfile 的目录中运行以下命令：
+
+[source,bash]
+----
+podman|docker build . -t mykeycloak
+----
+
+=== 启动优化后的 {project_name} 容器映像
+要启动映像，请运行：
+
+[source, bash]
+----
+podman|docker run --name mykeycloak -p 8443:8443 -p 9000:9000 \
+        -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=change_me \
+        mykeycloak \
+        start --optimized
+----
+
+{project_name} 以生产模式启动，仅使用安全的 HTTPS 通信，并可在 `https://localhost:8443`.
+
+健康检查端点位于 `https://localhost:9000/health`, `https://localhost:9000/health/ready` 和 `https://localhost:9000/health/live`.
+
+打开 `https://localhost:9000/metrics` 会进入一个页面，其中包含监控解决方案可以使用的运行指标。
+
+== 将容器暴露于不同的端口
+
+默认情况下，服务器分别使用端口 `8080` 和 `8443` 监听 `http` 和 `https` 请求。
+
+如果要使用不同的端口暴露容器，则需要相应地设置 `hostname-port` ：
+
+. 使用默认端口以外的端口公开容器
+[source, bash]
+----
+podman|docker run --name mykeycloak -p 3000:8443 \
+        -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=change_me \
+        mykeycloak \
+        start --optimized --hostname-port=3000
+----
+
+通过设置 `hostname-port` 选项，你现在可以通过 `https://localhost:3000` 访问服务器。
+
+== 在开发模式下尝试 {project_name}
+为开发或测试目的从容器中试用 {project_name} 的最简单方法是使用开发模式。
+你可以使用 `start-dev` 命令：
+
+[source,bash,subs="attributes+"]
+----
+podman|docker run --name mykeycloak -p 8080:8080 \
+        -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=change_me \
+        quay.io/keycloak/keycloak:{containerlabel} \
+        start-dev
+----
+
+调用此命令将以开发模式启动 {project_name} 服务器。
+
+在生产环境中应严格避免使用该模式，因为它的默认设置不安全。
+有关在生产环境中运行 {project_name} 的更多信息，请参阅 <@links.server id="configuration-production"/>.
+
+== 运行标准 {project_name} 容器
+根据不可变基础架构等概念，容器需要定期重新配置。
+在这些环境中，你需要容器能快速启动，因此你需要创建一个优化的映像，如上一节所述。
+不过，如果你的环境有不同的要求，你可以只运行 `start` 命令来运行标准的 {project_name} 映像。
+例如
+
+[source,bash,subs="attributes+"]
+----
+podman|docker run --name mykeycloak -p 8080:8080 \
+        -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=change_me \
+        quay.io/keycloak/keycloak:{containerlabel} \
+        start \
+        --db=postgres --features=token-exchange \
+        --db-url=<JDBC-URL> --db-username=<DB-USER> --db-password=<DB-PASSWORD> \
+        --https-key-store-file=<file> --https-key-store-password=<password>
+----
+
+运行该命令后，{project_name} 服务器将首先检测并应用构建选项。
+在示例中， `--db=postgres --features=token-exchange` 行将数据库供应商设置为 PostgreSQL，并启用令牌交换功能。
+
+然后，{project_name} 启动并应用特定环境的配置。
+这种方法大大增加了启动时间，而且创建的映像是可变的，并非最佳做法。
+
+== 在容器中运行时提供初始管理员凭据
+{project_name} 只允许通过本地网络连接创建初始管理员用户。在容器中运行时，情况并非如此，因此必须在运行映像时提供以下环境变量：
+
+[source, bash]
+----
+# setting the admin username
+-e KEYCLOAK_ADMIN=<admin-user-name>
+
+# setting the initial password
+-e KEYCLOAK_ADMIN_PASSWORD=change_me
+----
+
+== 启动时导入一个领域
+
+{project_name} 容器有一个目录 `/opt/keycloak/data/import`。如果通过卷挂载或其他方式在该目录中放入一个或多个导入文件，并添加启动参数 `--import-realm`，{project_name} 容器就会在启动时导入该数据！这可能只有在开发模式下才有意义。
+
+[source,bash,subs="attributes+"]
+----
+podman|docker run --name keycloak_unoptimized -p 8080:8080 \
+        -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=change_me \
+        -v /path/to/realm/data:/opt/keycloak/data/import \
+        quay.io/keycloak/keycloak:{containerlabel} \
+        start-dev --import-realm
+----
+
+Feel free to join the open https://github.com/keycloak/keycloak/discussions/8549[GitHub Discussion] around enhancements of the admin bootstrapping process.
+
+== 指定不同的内存设置
+
+{project_name} 容器不会为初始堆大小和最大堆大小指定硬编码值，而是使用容器总内存的相对值。
+这一行为是通过 JVM 选项 `-XX:MaxRAMPercentage=70` 和 `-XX:InitialRAMPercentage=50` 实现的。
+
+`-XX:MaxRAMPercentage` 选项表示最大堆大小为容器内存总量的 70%。
+而 `-XX:InitialRAMPercentage` 选项表示初始堆大小为容器内存总量的 50%。
+这些值是基于对 {project_name} 内存管理的深入分析而选择的。
+
+由于堆大小是根据容器内存总量动态计算的，因此应 *始终为容器设置内存限制*。
+以前，最大堆大小设置为 512 MB，为了接近类似的值，应将内存限制设置为至少 750 MB。
+对于较小的生产就绪部署，建议内存限制为 2 GB。
+
+通过设置环境变量 `JAVA_OPTS_KC_HEAP`，可以覆盖与堆相关的 JVM 选项。
+您可以在 `kc.sh` 或 `kc.bat` 脚本的源代码中找到 `JAVA_OPTS_KC_HEAP` 的默认值。
+
+例如，可以按如下方式指定环境变量和内存限制：
+
+[source,bash,subs="attributes+"]
+----
+podman|docker run --name mykeycloak -p 8080:8080 -m 1g \
+        -e KEYCLOAK_ADMIN=admin -e KEYCLOAK_ADMIN_PASSWORD=change_me \
+        -e JAVA_OPTS_KC_HEAP="-XX:MaxHeapFreeRatio=30 -XX:MaxRAMPercentage=65" \
+        quay.io/keycloak/keycloak:{containerlabel} \
+        start-dev
+----
+
+警告：如果不设置内存限制，内存消耗量会迅速增加，因为堆大小可能会增长到容器总内存的 70%。
+一旦 JVM 分配了内存，它就会不情愿地将当前 {project_name} GC 设置返回给操作系统。
+
+</@tmpl.guide>

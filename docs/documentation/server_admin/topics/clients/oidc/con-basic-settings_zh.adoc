@@ -1,0 +1,102 @@
+[id="con-basic-settings_{context}"]
+= 基本配置
+[role="_abstract"]
+
+设置 *Settings* 卡包含许多配置该客户端的选项。
+
+.Settings tab
+image:images/client-settings-oidc.png[Settings tab]
+
+== General Settings
+
+*Client ID*:: 字母数字 ID 字符串，用于在 OIDC 请求和 {project_name} 数据库中识别客户。
+
+*Name*:: 客户端在 {project_name} 用户界面屏幕中的名称。要本地化名称，请设置一个替换字符串值。例如，一个字符串值，如 $\{myapp}。 更多信息请参阅链接：{developerguide_link}[{developerguide_name}]。
+
+*Description*:: 客户端的描述。 此设置也可本地化。
+
+*Always Display in Console*:: 始终在账户控制台中列出此客户端，即使该用户没有活动会话。
+
+== Access Settings
+
+*Root URL*:: 如果 {project_name} 使用任何配置的相对 URL，该值将作为前缀。
+
+*Home URL*:: 当认证服务器需要重定向或链接回客户端时提供默认 URL。
+
+*Valid Redirect URIs*:: 必填字段。 输入 URL 模式，单击 *+* to add and *-* 删除现有 URL，然后单击 *Save*。精确（区分大小写(case sensitive)）字符串匹配用于比较有效的重定向 URI。
++
+您可以在 URL 模式末尾使用通配符。例如 `$$http://host.com/path/*$$`. 为避免安全问题，如果传递的重定向 URI 包含 *userinfo* 部分或其 *path* 管理访问父目录 (`/../`)，则不会执行通配符比较，而是执行标准、安全的精确字符串匹配。
++
+全通配符 `$$*$$` 有效重定向 URI 也可配置为允许任何 *http* 或 *https* 重定向 URI。请勿在生产环境中使用。
++
+独占重定向 URI 模式通常更安全。更多信息请参阅 xref:unspecific-redirect-uris_{context}[Unspecific Redirect URIs]。
+
+Web Origins:: 输入 URL 模式，单击 "+" 添加，单击 "-" 删除现有 URL。单击保存。
++
+此选项可处理 link:https://fetch.spec.whatwg.org/[Cross-Origin Resource Sharing (CORS)]。
+如果浏览器 JavaScript 尝试向域名与 JavaScript 代码来自的服务器不同的服务器发出 AJAX HTTP 请求，则该请求必须使用 CORS。服务器必须处理 CORS 请求，否则浏览器将不会显示或允许处理该请求。该协议可防止 XSS、CSRF 和其他基于 JavaScript 的攻击。
++
+此处列出的域 URL 嵌入发送给客户端应用程序的访问令牌中。客户端应用程序使用此信息来决定是否允许在其上调用 CORS 请求。只有 {project_name} 客户端适配器支持此功能。更多信息请参阅 link:{adapterguide_link}[{adapterguide_name}]。
+
+[[_admin-url]]
+Admin URL:: 客户端的回调端点。服务器使用此 URL 进行回调，如推送撤销策略、执行反向通道注销和其他管理操作。对于 {project_name} servlet 适配程序，该 URL 可以是 servlet 应用程序的根 URL。更多信息，请参阅链接:{adapterguide_link}[{adapterguide_name}].
+
+== Capability Config（能力配置）
+[[_access-type]]
+
+*Client authentication*:: OIDC 客户端类型。
+* _ON_
++
+用于执行浏览器登录的服务器端客户端，在发出访问令牌请求时需要客户端机密。服务器端应用程序应使用此设置。
+表示设置Client的access type为confidential。
+
+* _OFF_
++
+用于执行浏览器登录的客户端。由于无法确保客户端客户机的机密安全，因此必须通过配置正确的重定向 URI 来限制访问。
+
+*Authorization*:: 启用或禁用此客户端的细粒度授权支持。
+
+*Standard Flow*:: 默认启用，该客户端可使用 OIDC xref:_oidc-auth-flows-authorization[Authorization Code Flow]。
+
+*Direct Access Grants*:: 默认启用，该客户端可以使用 OIDC xref:_oidc-auth-flows-direct[Direct Access Grants].
+
+*Implicit Flow*:: 如果启用，该客户端可以使用 OIDC  xref:_oidc-auth-flows-implicit[Implicit Flow].
+
+*Service account roles*:: 如果启用，该客户端就可以对 {project_name} 进行身份验证，并获取专用于该客户端的访问令牌。根据 OAuth2 规范，这将使该客户端支持 "Client Credentials Grant"。
+
+*Auth 2.0 Device Authorization Grant*:: 如果启用，该客户端可使用 OIDC xref:con-oidc-auth-flows_server_administration_guide[Device Authorization Grant].
+
+*OIDC CIBA Grant*:: 如果启用，该客户端可使用 OIDC xref:con-oidc-auth-flows_{context}[Client Initiated Backchannel Authentication Grant].
+
+== Login settings
+
+*Login theme*:: 用于登录、OTP、授予注册和忘记密码页面的主题。
+
+*Consent required*:: 如果启用，用户必须同意才能访问客户端。
++
+用于执行浏览器登录的客户端。由于客户端客户端无法确保机密安全，因此必须通过配置正确的重定向 URI 来限制访问。
+
+*Display client on screen*::  如果 *Consent Required* 为 *Off*，则适用此开关。
+* _Off_
++
+同意屏幕将只包含与配置的客户端范围相对应的同意。
+
+* _On_
++
+同意屏幕上还会有一个关于此客户机本身的项目。
+
+*Client consent screen text*:: 如果启用了 *Consent required* 和 *Display client on screen* ，则适用。包含同意屏幕上有关此客户端权限的文本。
+
+== Logout settings
+
+[[_front-channel-logout]]
+*Front channel logout*:: 如果启用，应用程序应能根据 link:https://openid.net/specs/openid-connect-frontchannel-1_0.html[OpenID Connect Front-Channel Logout] 规范通过前台注销用户。如果启用，还应提供 `Front-Channel Logout URL`。
+
+*Front-channel logout URL*::  {project_name} 用于通过前端通道向客户端发送注销请求的 URL。
+
+[[_back-channel-logout-url]]
+*Backchannel logout URL*:: 当注销请求发送到此领域（通过 end_session_endpoint）时，将导致客户端注销的 URL。如果省略，则不会向客户端发送注销请求。
+
+*Backchannel logout session required*:: 指定在使用 *Backchannel 注销 URL* 时，注销令牌中是否包含会话 ID Claim。
+
+*Backchannel logout revoke offline sessions*:: 当启用时，指定注销令牌中是否包含 revoke_offline_access 事件。当收到带有此事件的注销令牌时，{project_name} 将撤销离线会话。
