@@ -1,0 +1,121 @@
+[[_overview_architecture]]
+== 架构
+
+image:images/authz-arch-overview.png[alt="{project_name} AuthZ architecture overview"]
+
+从设计角度看，授权服务基于一套定义明确的授权模式，可提供这些功能：
+
+* **政策管理点 (PAP)**
++
+提供一套基于 {project_name} 管理控制台的用户界面，用于管理资源服务器、资源、作用域、权限和策略。
+其中一部分还可通过使用 <<_service_protection_api, Protection API>> 远程完成。
++
+
+* **策略决策点（PDP）**
++
+提供一个可分发的策略决策点，向其发送授权请求，并根据请求的权限对策略进行相应的评估。
+有关详细信息，请参阅 <<_service_obtaining_permissions, Obtaining Permissions>>。
++
+
+* **政策执行点 (PEP)**
++
+为不同环境提供实现方法，以便在资源服务器端实际执行授权决策。
+{project_name} 提供了一些内置的 <<_enforcer_overview, Policy Enforcers>>。
++
+
+* **政策信息点（PIP）**
++
+基于 {project_name} 身份验证服务器，您可以在评估授权策略时从身份和运行环境中获取属性。
+
+=== 授权流程
+
+要了解如何使用{project_name}对应用程序进行细粒度授权，有三个主要流程规定了必要的步骤：
+
+* 资源管理
+* 权限和策略管理
+* 政策执行
+
+==== 资源管理
+
+*资源管理* 涉及确定保护对象的所有必要步骤。
+
+image:images/resource-mgmt-process.png[alt="Resource management overview"]
+
+首先，您需要指定{project_name}您要保护的内容，它通常代表一个网络应用程序或一组一个或多个服务。有关资源服务器的更多信息，请参阅 <<_overview_terminology, Terminology>>。
+
+资源服务器使用 {project_name} 管理控制台进行管理。您可以将任何已注册的客户端应用程序启用为资源服务器，并开始管理要保护的资源和作用域。
+
+image:images/rs-r-scopes.png[alt="Resource Server overview"]
+
+资源可以是网页、RESTFul 资源、文件系统中的文件、EJB 等。它们可以代表一组资源（就像 Java 中的类），也可以代表单一的特定资源。
+
+例如，您可能有一个代表所有银行账户的 _Bank Account_ 资源，并用它来定义所有银行账户通用的授权策略。但是，您可能希望为 _Alice Account_ （属于某个客户的资源实例）定义特定的策略，只有所有者才能访问某些信息或执行某项操作。
+
+可以使用 {project_name} 管理控制台或 <<_service_protection_api, Protection API>> 管理资源。在后一种情况下，资源服务器可以远程管理其资源。
+
+作用域通常表示可在资源上执行的操作，但并不仅限于此。您也可以使用作用域来表示资源中的一个或多个属性。
+
+==== 权限和策略管理
+
+一旦定义了资源服务器和要保护的所有资源，就必须设置权限和策略。
+
+这一过程包括所有必要步骤，以实际定义管理资源的安全和访问要求。
+
+image:images/policy-mgmt-process.png[alt="Permission and policy management overview"]
+
+策略定义了对某物（资源或范围）进行访问或执行操作时必须满足的条件，但它们与所保护的对象无关。它们是通用的，可以重复使用以建立权限或更复杂的策略。
+
+例如，要只允许被授予 "高级用户" 角色的用户访问一组资源，可以使用 RBAC（基于角色的访问控制）。
+
+{project_name} 提供了几种内置策略类型（及其各自的策略提供者），涵盖了最常见的访问控制机制。您甚至可以根据使用 JavaScript 编写的规则创建策略。
+
+定义好策略后，就可以开始定义权限了。权限与所保护的资源相关联。在此，您可以指定要保护的内容（资源或范围），以及授予或拒绝权限必须满足的策略。
+
+==== 政策执行
+
+*政策执行(Policy Enforcement)* 涉及向资源服务器实际执行授权决定的必要步骤。具体做法是在资源服务器上启用一个 *政策执行点(Policy Enforcement Point)* 或 PEP，该点能够与授权服务器通信，请求授权数据，并根据服务器返回的决定和权限控制对受保护资源的访问。
+
+image:images/pep-pattern-diagram.png[alt="PEP overview"]
+
+{project_name} 提供了一些内置的 <<_enforcer_overview, Policy Enforcers>> 实现，您可以根据应用程序运行的平台使用这些实现来保护应用程序。
+
+=== 授权服务
+
+授权服务由以下 RESTFul 端点组成：
+
+* 令牌端点(Token Endpoint)
+* 资源管理端点(Resource Management Endpoint)
+* 权限管理端点(Permission Management Endpoint)
+
+每种服务都提供特定的应用程序接口，涵盖授权过程中的不同步骤。
+
+==== 令牌端点
+
+OAuth2 客户端（如前端应用程序）可以使用令牌端点从服务器获取访问令牌，并使用这些令牌访问受资源服务器（如后端服务）保护的资源。同样，{project_name} 授权服务为 OAuth2 提供了扩展，允许根据与请求的资源或范围相关的所有策略的处理情况来签发访问令牌。这意味着，资源服务器可根据服务器授予的权限和访问令牌持有的权限，强制访问其受保护的资源。在{project_name}授权服务中，具有权限的访问令牌称为请求方令牌，简称 RPT。
+
+[role="_additional-resources"]
+.其他资源
+* <<_service_obtaining_permissions, Obtaining Permissions>>
+
+==== 保护API
+
+*保护API* 是一组为资源服务器提供操作的 https://docs.kantarainitiative.org/uma/wg/oauth-uma-federated-authz-2.0-09.html[符合UMA规范] 端点，可帮助它们管理资源、作用域、权限以及与之相关的策略。只有资源服务器才允许访问此 API，它还需要一个 *uma_protection* 作用域。
+
+保护 API 提供的操作可分为两大类：
+
+* 资源管理
+    ** 创建资源
+    ** 删除资源
+    ** 按ID查找
+    ** 查询
+* 权限管理
+    ** 发布权限票
+
+[NOTE]
+默认情况下，远程资源管理已启用。您可以使用 {project_name} 管理控制台进行更改，只允许通过控制台进行资源管理。
+
+使用 UMA 协议时，保护 API 签发许可票据是整个授权流程的重要组成部分。如后续章节所述，它们代表客户端请求的权限，并被发送至服务器，以便在评估与所请求的资源和作用域相关的权限和策略时，获得包含所有已授予权限的最终令牌。
+
+[role="_additional-resources"]
+.其他资源
+* <<_service_protection_api, Protection API>>

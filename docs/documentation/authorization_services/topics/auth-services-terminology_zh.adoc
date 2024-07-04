@@ -1,0 +1,81 @@
+[[_overview_terminology]]
+== Terminology
+
+在进一步了解之前，有必要了解 {project_name} 授权服务引入的这些术语和概念。
+
+[[_overview_terminology_resource_server]]
+=== Resource Server
+
+根据 OAuth2 术语，资源服务器是托管受保护资源的服务器，能够接受和响应受保护资源请求。
+
+资源服务器通常依赖某种信息来决定是否允许访问受保护资源。对于基于 RESTful 的资源服务器来说，这些信息通常包含在安全令牌中，通常作为承载令牌随服务器的每个请求一起发送。依赖会话来验证用户身份的网络应用程序通常会将该信息存储在用户的会话中，并在每次请求时从中检索。
+
+在{project_name}中，任何 *机密* 客户端应用程序都可以充当资源服务器。该客户端的资源及其各自的作用域受一系列授权策略的保护和管理。
+
+=== Resource
+
+资源是应用程序和组织资产的一部分。它可以是一个或多个端点的集合，也可以是 HTML 页面等传统网络资源。
+在授权策略术语中，资源是受保护的 _对象_ 。
+
+每个资源都有一个唯一标识符，它可以代表一个资源，也可以代表一组资源。例如，你可以管理一个 _银行账户资源_ ，它代表并定义了一组针对所有银行账户的授权策略。但你也可以有一个名为 _Alice's Banking Account_ 的不同资源，它代表由单个客户拥有的单个资源，可以有自己的一套授权策略。
+
+=== Scope
+
+资源的范围是可以对资源进行访问的限定范围。在授权策略术语中，范围是在逻辑上可适用于资源的潜在的许多 _verbs_ 中的一个。
+
+它通常表示可以对给定资源进行哪些操作。例如查看、编辑、删除等。不过，作用域也可以与资源提供的特定信息相关。在这种情况下，可以有一个项目资源和一个成本范围，其中成本范围用于定义用户访问项目成本的特定策略和权限。
+
+=== Permission
+
+请看这个简单而常见的权限：
+
+权限将受保护对象与必须评估以决定是否允许访问的策略联系起来。
+
+* *x* 可以在资源 *z* 上执行 *y* 操作
+** 其中...
+*** *X* 代表一个或多个用户、角色或组，或它们的组合。这里还可以使用权利要求和上下文。
+*** *Y* 表示要执行的操作，例如写入、查看等。
+*** *Z* 表示受保护的资源，例如"/accounts"。
+
+{project_name} 提供了一个丰富的平台，用于构建从简单到非常复杂、基于规则的动态权限策略。它具有灵活性，有助于
+
+* 减少代码重构和权限管理成本
+* 支持更灵活的安全模型，帮助您轻松适应安全需求的变化
+* 在运行时进行更改；应用程序只关心受保护的资源和范围，而不关心如何保护它们。
+
+=== Policy
+
+策略定义了授予对象访问权限必须满足的条件。与权限不同，策略不指定被保护的对象，而是指定必须满足的条件。
+而是访问给定对象（如资源、作用域或两者）必须满足的条件。
+策略与不同的访问控制机制（ACM）密切相关，您可以使用这些机制来保护资源。
+有了策略，你就可以实施基于属性的访问控制（ABAC）、基于角色的访问控制（RBAC）、基于上下文的访问控制等策略，也可以实施这些策略的任意组合。
+
+{project_name}通过提供聚合策略的概念来利用策略的概念和定义策略的方式，在聚合策略中，您可以构建 "策略的策略"，并仍然可以控制评估的行为。
+{project_name}授权服务中的策略实施采用了分而治之的技术，而不是编写一个包含访问给定资源必须满足的所有条件的大型策略。
+也就是说，你可以创建单个策略，然后用不同的权限重复使用它们，并通过组合单个策略来构建更复杂的策略。
+
+=== Policy provider
+
+策略提供程序是特定策略类型的实现。{project_name}提供由相应策略提供者支持的内置策略，您也可以创建自己的策略类型，以支持您的特定需求。
+
+{project_name}提供了一个 SPI（服务提供商接口），您可以用它来插入自己的策略提供商实现。
+
+[[_overview_terminology_permission_ticket]]
+=== Permission ticket
+
+A permission ticket is a special type of token defined by the User-Managed Access (UMA) specification that provides an opaque structure whose form is determined by the authorization server. This
+structure represents the resources and/or scopes being requested by a client, the access context, as well as the policies that must be applied to a request for authorization data (requesting party token [RPT]).
+
+In UMA, permission tickets are crucial to support person-to-person sharing and also person-to-organization sharing. Using permission tickets for authorization workflows enables a range of scenarios from simple to complex, where resource owners and resource servers have complete control over their resources based on fine-grained policies that govern the access to these resources.
+
+In the UMA workflow, permission tickets are issued by the authorization server to a resource server, which returns the permission ticket to the client trying to access a protected resource. Once the client receives the ticket, it can make a request for an RPT (a final token holding authorization data) by sending the ticket back to the authorization server.
+
+For more information on permission tickets, see <<_service_user_managed_access, User-Managed Access>> and the https://docs.kantarainitiative.org/uma/wg/oauth-uma-grant-2.0-09.html[UMA] specification.
+
+权限票据是用户管理访问（UMA）规范定义的一种特殊令牌类型，它提供一种不透明结构，其形式由授权服务器决定。该结构表示客户请求的资源和/或范围、访问上下文以及必须应用于授权数据请求的策略（请求方令牌 [RPT]）。
+
+在 UMA 中，权限票据对支持人与人共享以及人与组织共享至关重要。在授权工作流中使用许可票据可实现从简单到复杂的各种场景，其中资源所有者和资源服务器可根据管理资源访问的细粒度策略对其资源进行完全控制。
+
+在 UMA 工作流中，授权服务器向资源服务器发送许可票据，资源服务器将许可票据返回给试图访问受保护资源的客户端。客户端收到票据后，可通过将票据发回授权服务器来请求 RPT（保存授权数据的最终令牌）。
+
+有关权限票据的更多信息，请参阅 <<_service_user_managed_access, User-Managed Access>> 和 https://docs.kantarainitiative.org/uma/wg/oauth-uma-grant-2.0-09.html[UMA] 规范。
