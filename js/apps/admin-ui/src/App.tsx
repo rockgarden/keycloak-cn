@@ -10,14 +10,13 @@ import { Outlet } from "react-router-dom";
 import { Header } from "./PageHeader";
 import { PageNav } from "./PageNav";
 import { AdminClientContext, initAdminClient } from "./admin-client";
-import { AlertProvider } from "./components/alert/Alerts";
 import { PageBreadCrumbs } from "./components/bread-crumb/PageBreadCrumbs";
 import { ErrorRenderer } from "./components/error/ErrorRenderer";
-import { KeycloakSpinner } from "./components/keycloak-spinner/KeycloakSpinner";
+import { KeycloakSpinner } from "@keycloak/keycloak-ui-shared";
 import {
   ErrorBoundaryFallback,
   ErrorBoundaryProvider,
-} from "./context/ErrorBoundary";
+} from "@keycloak/keycloak-ui-shared";
 import { RecentRealmsProvider } from "./context/RecentRealms";
 import { AccessContextProvider } from "./context/access/Access";
 import { RealmContextProvider } from "./context/realm-context/RealmContext";
@@ -26,6 +25,7 @@ import { WhoAmIContextProvider } from "./context/whoami/WhoAmI";
 import type { Environment } from "./environment";
 import { SubGroups } from "./groups/SubGroupsContext";
 import { AuthWall } from "./root/AuthWall";
+import { Banners } from "./Banners";
 
 const AppContexts = ({ children }: PropsWithChildren) => (
   <ErrorBoundaryProvider>
@@ -34,9 +34,7 @@ const AppContexts = ({ children }: PropsWithChildren) => (
         <WhoAmIContextProvider>
           <RecentRealmsProvider>
             <AccessContextProvider>
-              <AlertProvider>
-                <SubGroups>{children}</SubGroups>
-              </AlertProvider>
+              <SubGroups>{children}</SubGroups>
             </AccessContextProvider>
           </RecentRealmsProvider>
         </WhoAmIContextProvider>
@@ -68,6 +66,7 @@ export const App = () => {
           breadcrumb={<PageBreadCrumbs />}
           mainContainerId={mainPageContentId}
         >
+          <Banners />
           <ErrorBoundaryFallback fallback={ErrorRenderer}>
             <Suspense fallback={<KeycloakSpinner />}>
               <AuthWall>

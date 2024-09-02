@@ -1,13 +1,7 @@
 .pf-v5-c-login__container {
-    grid-template-areas: "main";
     grid-template-columns: 34rem;
-}
-
-#kc-header-wrapper {
-    padding: 62px 10px 20px;
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+    grid-template-areas: "header"
+                         "main"
 }
 
 .login-pf body {
@@ -69,3 +63,20 @@ div.kc-logo-text span {
     border-color: transparent black transparent transparent;
 }
 
+#kc-recovery-codes-list {
+    columns: 2;
+}
+
+#certificate_subjectDN {
+    overflow-wrap: break-word
+}
+
+#kc-header-wrapper {
+    font-size: 29px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    line-height: 1.2em;
+    white-space: normal;
+    color: var(--pf-v5-global--Color--light-100) !important;
+    text-align: center;
+}

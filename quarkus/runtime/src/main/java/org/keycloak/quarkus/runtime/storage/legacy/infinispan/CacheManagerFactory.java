@@ -20,18 +20,24 @@ package org.keycloak.quarkus.runtime.storage.legacy.infinispan;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Stream;
 
 import io.micrometer.core.instrument.Metrics;
-import org.infinispan.client.hotrod.DefaultTemplate;
+import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
+import org.infinispan.client.hotrod.RemoteCacheManagerAdmin;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
 import org.infinispan.commons.api.Lifecycle;
+import org.infinispan.commons.dataconversion.MediaType;
+import org.infinispan.commons.internal.InternalCacheNames;
 import org.infinispan.commons.util.concurrent.CompletableFutures;
+import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.HashConfiguration;
 import org.infinispan.configuration.cache.PersistenceConfigurationBuilder;
@@ -42,6 +48,8 @@ import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.metrics.config.MicrometerMeterRegisterConfigurationBuilder;
 import org.infinispan.persistence.remote.configuration.ExhaustedAction;
 import org.infinispan.persistence.remote.configuration.RemoteStoreConfigurationBuilder;
+import org.infinispan.protostream.descriptors.FileDescriptor;
+import org.infinispan.query.remote.client.ProtobufMetadataManagerConstants;
 import org.infinispan.remoting.transport.jgroups.JGroupsTransport;
 import org.jboss.logging.Logger;
 import org.jgroups.protocols.TCP_NIO2;
@@ -49,10 +57,15 @@ import org.jgroups.protocols.UDP;
 import org.jgroups.util.TLS;
 import org.jgroups.util.TLSClientAuth;
 import org.keycloak.common.Profile;
+import org.keycloak.common.util.MultiSiteUtils;
 import org.keycloak.config.CachingOptions;
 import org.keycloak.config.MetricsOptions;
 import org.keycloak.infinispan.util.InfinispanUtils;
+import org.keycloak.marshalling.KeycloakIndexSchemaUtil;
+import org.keycloak.marshalling.KeycloakModelSchema;
 import org.keycloak.marshalling.Marshalling;
+import org.keycloak.models.sessions.infinispan.RootAuthenticationSessionAdapter;
+import org.keycloak.models.sessions.infinispan.entities.LoginFailureEntity;
 import org.keycloak.quarkus.runtime.configuration.Configuration;
 
 import javax.net.ssl.SSLContext;
@@ -65,7 +78,6 @@ import static org.keycloak.config.CachingOptions.CACHE_REMOTE_HOST_PROPERTY;
 import static org.keycloak.config.CachingOptions.CACHE_REMOTE_PASSWORD_PROPERTY;
 import static org.keycloak.config.CachingOptions.CACHE_REMOTE_PORT_PROPERTY;
 import static org.keycloak.config.CachingOptions.CACHE_REMOTE_USERNAME_PROPERTY;
-import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.ACTION_TOKEN_CACHE;
 import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.AUTHENTICATION_SESSIONS_CACHE_NAME;
 import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.CLIENT_SESSION_CACHE_NAME;
 import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.CLUSTERED_CACHE_NAMES;
@@ -73,7 +85,7 @@ import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.L
 import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.OFFLINE_CLIENT_SESSION_CACHE_NAME;
 import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.OFFLINE_USER_SESSION_CACHE_NAME;
 import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.USER_SESSION_CACHE_NAME;
-import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.WORK_CACHE_NAME;
+import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.skipSessionsCacheIfRequired;
 import static org.wildfly.security.sasl.util.SaslMechanismInformation.Names.SCRAM_SHA_512;
 
 public class CacheManagerFactory {
@@ -156,56 +168,106 @@ public class CacheManagerFactory {
 
         Marshalling.configure(builder);
 
-        if (createRemoteCaches()) {
-            // fall back for distributed caches if not defined
-            logger.warn("Creating remote cache in external Infinispan server. It should not be used in production!");
-            for (String name : CLUSTERED_CACHE_NAMES) {
-                builder.remoteCache(name).templateName(DefaultTemplate.DIST_SYNC);
-            }
+        if (shouldCreateRemoteCaches()) {
+            createRemoteCaches(builder);
         }
 
-        RemoteCacheManager remoteCacheManager = new RemoteCacheManager(builder.build());
+        var remoteCacheManager = new RemoteCacheManager(builder.build());
+
+        // update the schema before trying to access the caches
+        updateProtoSchema(remoteCacheManager);
 
         // establish connection to all caches
         if (isStartEagerly()) {
-            Arrays.stream(CLUSTERED_CACHE_NAMES).forEach(remoteCacheManager::getCache);
+            skipSessionsCacheIfRequired(Arrays.stream(CLUSTERED_CACHE_NAMES)).forEach(remoteCacheManager::getCache);
         }
         return remoteCacheManager;
+    }
+
+    private static void createRemoteCaches(org.infinispan.client.hotrod.configuration.ConfigurationBuilder builder) {
+        // fall back for distributed caches if not defined
+        logger.warn("Creating remote cache in external Infinispan server. It should not be used in production!");
+        var baseConfig = defaultRemoteCacheBuilder().build();
+
+        skipSessionsCacheIfRequired(Arrays.stream(CLUSTERED_CACHE_NAMES))
+                .forEach(name -> builder.remoteCache(name).configuration(baseConfig.toStringConfiguration(name)));
+    }
+
+    private static ConfigurationBuilder defaultRemoteCacheBuilder() {
+        var builder = new ConfigurationBuilder();
+        builder.clustering().cacheMode(CacheMode.DIST_SYNC);
+        builder.encoding().mediaType(MediaType.APPLICATION_PROTOSTREAM);
+        return builder;
+    }
+
+    private void updateProtoSchema(RemoteCacheManager remoteCacheManager) {
+        var key = KeycloakModelSchema.INSTANCE.getProtoFileName();
+        var current = KeycloakModelSchema.INSTANCE.getProtoFile();
+
+        RemoteCache<String, String> protostreamMetadataCache = remoteCacheManager.getCache(InternalCacheNames.PROTOBUF_METADATA_CACHE_NAME);
+        var stored = protostreamMetadataCache.getWithMetadata(key);
+        if (stored == null) {
+            if (protostreamMetadataCache.putIfAbsent(key, current) == null) {
+                logger.info("Infinispan ProtoStream schema uploaded for the first time.");
+            } else {
+                logger.info("Failed to update Infinispan ProtoStream schema. Assumed it was updated by other Keycloak server.");
+            }
+            checkForProtoSchemaErrors(protostreamMetadataCache);
+            return;
+        }
+        if (Objects.equals(stored.getValue(), current)) {
+            logger.info("Infinispan ProtoStream schema is up to date!");
+            return;
+        }
+        if (protostreamMetadataCache.replaceWithVersion(key, current, stored.getVersion())) {
+            logger.info("Infinispan ProtoStream schema successful updated.");
+            reindexCaches(remoteCacheManager, stored.getValue(), current);
+        } else {
+            logger.info("Failed to update Infinispan ProtoStream schema. Assumed it was updated by other Keycloak server.");
+        }
+        checkForProtoSchemaErrors(protostreamMetadataCache);
+    }
+
+    private void checkForProtoSchemaErrors(RemoteCache<String, String> protostreamMetadataCache) {
+        String errors = protostreamMetadataCache.get(ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX);
+        if (errors != null) {
+            for (String errorFile : errors.split("\n")) {
+                logger.errorf("%nThere was an error in proto file: %s%nError message: %s%nCurrent proto schema: %s%n",
+                        errorFile,
+                        protostreamMetadataCache.get(errorFile + ProtobufMetadataManagerConstants.ERRORS_KEY_SUFFIX),
+                        protostreamMetadataCache.get(errorFile));
+            }
+        }
+    }
+
+    private static void reindexCaches(RemoteCacheManager remoteCacheManager, String oldSchema, String newSchema) {
+        var oldPS = KeycloakModelSchema.parseProtoSchema(oldSchema);
+        var newPS = KeycloakModelSchema.parseProtoSchema(newSchema);
+        var admin = remoteCacheManager.administration();
+
+        if (isEntityChanged(oldPS, newPS, Marshalling.protoEntity(LoginFailureEntity.class))) {
+            updateSchemaAndReIndexCache(admin, LOGIN_FAILURE_CACHE_NAME);
+        }
+
+        if (isEntityChanged(oldPS, newPS, Marshalling.protoEntity(RootAuthenticationSessionAdapter.class))) {
+            updateSchemaAndReIndexCache(admin, AUTHENTICATION_SESSIONS_CACHE_NAME);
+        }
+    }
+
+    private static boolean isEntityChanged(FileDescriptor oldSchema, FileDescriptor newSchema, String entity) {
+        var v1 = KeycloakModelSchema.findEntity(oldSchema, entity);
+        var v2 = KeycloakModelSchema.findEntity(newSchema, entity);
+        return v1.isPresent() && v2.isPresent() && KeycloakIndexSchemaUtil.isIndexSchemaChanged(v1.get(), v2.get());
+    }
+
+    private static void updateSchemaAndReIndexCache(RemoteCacheManagerAdmin admin, String cacheName) {
+        admin.updateIndexSchema(cacheName);
+        admin.reindexCache(cacheName);
     }
 
     private CompletableFuture<DefaultCacheManager> startEmbeddedCacheManager(String config) {
         logger.info("Starting Infinispan embedded cache manager");
         ConfigurationBuilderHolder builder = new ParserRegistry().parse(config);
-
-        if (builder.getNamedConfigurationBuilders().entrySet().stream().anyMatch(c -> c.getValue().clustering().cacheMode().isClustered())) {
-            configureTransportStack(builder);
-            configureRemoteStores(builder);
-        }
-
-        Arrays.stream(CLUSTERED_CACHE_NAMES).forEach(cacheName -> {
-            if (cacheName.equals(USER_SESSION_CACHE_NAME) || cacheName.equals(CLIENT_SESSION_CACHE_NAME) || cacheName.equals(OFFLINE_USER_SESSION_CACHE_NAME) || cacheName.equals(OFFLINE_CLIENT_SESSION_CACHE_NAME)) {
-                ConfigurationBuilder configurationBuilder = builder.getNamedConfigurationBuilders().get(cacheName);
-                if (Profile.isFeatureEnabled(Profile.Feature.PERSISTENT_USER_SESSIONS)) {
-                    if (configurationBuilder.memory().maxCount() == -1) {
-                        logger.infof("Persistent user sessions enabled and no memory limit found in configuration. Setting max entries for %s to 10000 entries.", cacheName);
-                        configurationBuilder.memory().maxCount(10000);
-                    }
-                    /* The number of owners for these caches then need to be set to `1` to avoid backup owners with inconsistent data.
-                     As primary owner evicts a key based on its locally evaluated maxCount setting, it wouldn't tell the backup owner about this, and then the backup owner would be left with a soon-to-be-outdated key.
-                     While a `remove` is forwarded to the backup owner regardless if the key exists on the primary owner, a `computeIfPresent` is not, and it would leave a backup owner with an outdated key.
-                     With the number of owners set to `1`, there will be no backup owners, so this is the setting to choose with persistent sessions enabled to ensure consistent data in the caches. */
-                    configurationBuilder.clustering().hash().numOwners(1);
-                } else {
-                    if (configurationBuilder.memory().maxCount() != -1) {
-                        logger.warnf("Persistent user sessions NOT enabled and memory limit found in configuration for cache %s. This might be a misconfiguration!", cacheName);
-                    }
-                    if (configurationBuilder.clustering().hash().attributes().attribute(HashConfiguration.NUM_OWNERS).get() == 1
-                        && configurationBuilder.persistence().stores().isEmpty()) {
-                        logger.warnf("Number of owners is one for cache %s, and no persistence is configured. This might be a misconfiguration as you will lose data when a single node is restarted!", cacheName);
-                    }
-                }
-            }
-        });
 
         if (Configuration.isTrue(MetricsOptions.METRICS_ENABLED)) {
             builder.getGlobalConfigurationBuilder().addModule(MicrometerMeterRegisterConfigurationBuilder.class);
@@ -223,7 +285,28 @@ public class CacheManagerFactory {
             var builders = builder.getNamedConfigurationBuilders();
             // remove all distributed caches
             logger.debug("Removing all distributed caches.");
-            Arrays.stream(CLUSTERED_CACHE_NAMES).forEach(builders::remove);
+            for (String cacheName : CLUSTERED_CACHE_NAMES) {
+               var remoteStore = builders.get(cacheName)
+                     .persistence()
+                     .stores()
+                     .stream()
+                     .filter(RemoteStoreConfigurationBuilder.class::isInstance)
+                     .findFirst();
+
+               if (remoteStore.isPresent())
+                  logger.warnf("remote-store configuration detected for cache '%s'. Explicit cache configuration ignored when using '%s' or '%s' Features.", cacheName, Profile.Feature.REMOTE_CACHE.getKey(), Profile.Feature.MULTI_SITE.getKey());
+               builders.remove(cacheName);
+            }
+            // Disable JGroups, not required when the data is stored in the Remote Cache.
+            // The existing caches are local and do not require JGroups to work properly.
+            builder.getGlobalConfigurationBuilder().nonClusteredDefault();
+        } else {
+            // embedded mode!
+            if (builder.getNamedConfigurationBuilders().entrySet().stream().anyMatch(c -> c.getValue().clustering().cacheMode().isClustered())) {
+                configureTransportStack(builder);
+                configureRemoteStores(builder);
+            }
+            configureSessionsCaches(builder);
         }
 
         var start = isStartEagerly();
@@ -239,7 +322,7 @@ public class CacheManagerFactory {
                 Configuration.getOptionalKcValue(CACHE_REMOTE_PASSWORD_PROPERTY).isPresent();
     }
 
-    private static boolean createRemoteCaches() {
+    private static boolean shouldCreateRemoteCaches() {
         return Boolean.getBoolean("kc.cache-remote-create-caches");
     }
 
@@ -263,7 +346,7 @@ public class CacheManagerFactory {
         return Integer.getInteger("kc.cache-ispn-start-timeout", 120);
     }
 
-    private void configureTransportStack(ConfigurationBuilderHolder builder) {
+    private static void configureTransportStack(ConfigurationBuilderHolder builder) {
         String transportStack = Configuration.getRawValue("kc.cache-stack");
 
         var transportConfig = builder.getGlobalConfigurationBuilder().transport();
@@ -288,7 +371,7 @@ public class CacheManagerFactory {
         }
     }
 
-    private void validateTlsAvailable(GlobalConfiguration config) {
+    private static void validateTlsAvailable(GlobalConfiguration config) {
         var stackName = config.transport().stack();
         if (stackName == null) {
             // unable to validate
@@ -306,7 +389,7 @@ public class CacheManagerFactory {
 
     }
 
-    private void configureRemoteStores(ConfigurationBuilderHolder builder) {
+    private static void configureRemoteStores(ConfigurationBuilderHolder builder) {
         //if one of remote store command line parameters is defined, some other are required, otherwise assume it'd configured via xml only
         if (Configuration.getOptionalKcValue(CACHE_REMOTE_HOST_PROPERTY).isPresent()) {
 
@@ -357,6 +440,36 @@ public class CacheManagerFactory {
                 }
             });
         }
+    }
+
+    private static void configureSessionsCaches(ConfigurationBuilderHolder builder) {
+        Stream.of(USER_SESSION_CACHE_NAME, CLIENT_SESSION_CACHE_NAME, OFFLINE_USER_SESSION_CACHE_NAME, OFFLINE_CLIENT_SESSION_CACHE_NAME)
+                .forEach(cacheName -> {
+                    var configurationBuilder = builder.getNamedConfigurationBuilders().get(cacheName);
+                    if (MultiSiteUtils.isPersistentSessionsEnabled()) {
+                        if (configurationBuilder.memory().maxCount() == -1) {
+                            logger.infof("Persistent user sessions enabled and no memory limit found in configuration. Setting max entries for %s to 10000 entries.", cacheName);
+                            configurationBuilder.memory().maxCount(10000);
+                        }
+                        /* The number of owners for these caches then need to be set to `1` to avoid backup owners with inconsistent data.
+                         As primary owner evicts a key based on its locally evaluated maxCount setting, it wouldn't tell the backup owner about this, and then the backup owner would be left with a soon-to-be-outdated key.
+                         While a `remove` is forwarded to the backup owner regardless if the key exists on the primary owner, a `computeIfPresent` is not, and it would leave a backup owner with an outdated key.
+                         With the number of owners set to `1`, there will be no backup owners, so this is the setting to choose with persistent sessions enabled to ensure consistent data in the caches. */
+                        configurationBuilder.clustering().hash().numOwners(1);
+                    } else {
+                        if (configurationBuilder.memory().maxCount() != -1) {
+                            logger.warnf("Persistent user sessions disabled and memory limit found in configuration for cache %s. This might be a misconfiguration! Update your Infinispan configuration to remove this message.", cacheName);
+                        }
+                        if (configurationBuilder.memory().maxCount() == 10000 && (cacheName.equals(USER_SESSION_CACHE_NAME) || cacheName.equals(CLIENT_SESSION_CACHE_NAME))) {
+                            logger.warnf("Persistent user sessions disabled and memory limit is set to default value 10000. Ignoring cache limits to avoid losing sessions for cache %s.", cacheName);
+                            configurationBuilder.memory().maxCount(-1);
+                        }
+                        if (configurationBuilder.clustering().hash().attributes().attribute(HashConfiguration.NUM_OWNERS).get() == 1
+                                && configurationBuilder.persistence().stores().isEmpty()) {
+                            logger.warnf("Number of owners is one for cache %s, and no persistence is configured. This might be a misconfiguration as you will lose data when a single node is restarted!", cacheName);
+                        }
+                    }
+                });
     }
 
     private static String requiredStringProperty(String propertyName) {

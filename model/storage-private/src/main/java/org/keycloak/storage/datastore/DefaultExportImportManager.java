@@ -85,7 +85,6 @@ import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.IdentityProviderMapperRepresentation;
 import org.keycloak.representations.idm.IdentityProviderRepresentation;
 import org.keycloak.representations.idm.OAuthClientRepresentation;
-import org.keycloak.representations.idm.OrganizationDomainRepresentation;
 import org.keycloak.representations.idm.OrganizationRepresentation;
 import org.keycloak.representations.idm.PartialImportRepresentation;
 import org.keycloak.representations.idm.ProtocolMapperRepresentation;
@@ -134,6 +133,8 @@ import static org.keycloak.models.utils.RepresentationToModel.createRoleMappings
 import static org.keycloak.models.utils.RepresentationToModel.importGroup;
 import static org.keycloak.models.utils.RepresentationToModel.importRoles;
 import static org.keycloak.models.utils.StripSecretsUtils.stripSecrets;
+import org.keycloak.representations.idm.MemberRepresentation;
+import org.keycloak.representations.idm.MembershipType;
 
 /**
  * This wraps the functionality about export/import for the storage.
@@ -336,7 +337,7 @@ public class DefaultExportImportManager implements ExportImportManager {
         }
 
         importIdentityProviders(rep, newRealm, session);
-        importIdentityProviderMappers(rep, newRealm);
+        importIdentityProviderMappers(rep, session);
 
         Map<String, ClientScopeModel> clientScopes = new HashMap<>();
         if (rep.getClientScopes() != null) {
@@ -555,15 +556,15 @@ public class DefaultExportImportManager implements ExportImportManager {
     private static void importIdentityProviders(RealmRepresentation rep, RealmModel newRealm, KeycloakSession session) {
         if (rep.getIdentityProviders() != null) {
             for (IdentityProviderRepresentation representation : rep.getIdentityProviders()) {
-                newRealm.addIdentityProvider(RepresentationToModel.toModel(newRealm, representation, session));
+                session.identityProviders().create(RepresentationToModel.toModel(newRealm, representation, session));
             }
         }
     }
 
-    private static void importIdentityProviderMappers(RealmRepresentation rep, RealmModel newRealm) {
+    private static void importIdentityProviderMappers(RealmRepresentation rep, KeycloakSession session) {
         if (rep.getIdentityProviderMappers() != null) {
             for (IdentityProviderMapperRepresentation representation : rep.getIdentityProviderMappers()) {
-                newRealm.addIdentityProviderMapper(RepresentationToModel.toModel(representation));
+                session.identityProviders().createMapper(RepresentationToModel.toModel(representation));
             }
         }
     }
@@ -1594,13 +1595,17 @@ public class DefaultExportImportManager implements ExportImportManager {
                 org.setDomains(orgRep.getDomains().stream().map(r -> new OrganizationDomainModel(r.getName(), r.isVerified())).collect(Collectors.toSet()));
 
                 for (IdentityProviderRepresentation identityProvider : Optional.ofNullable(orgRep.getIdentityProviders()).orElse(Collections.emptyList())) {
-                    IdentityProviderModel idp = newRealm.getIdentityProviderByAlias(identityProvider.getAlias());
+                    IdentityProviderModel idp = session.identityProviders().getByAlias(identityProvider.getAlias());
                     provider.addIdentityProvider(org, idp);
                 }
 
-                for (UserRepresentation member : Optional.ofNullable(orgRep.getMembers()).orElse(Collections.emptyList())) {
+                for (MemberRepresentation member : Optional.ofNullable(orgRep.getMembers()).orElse(Collections.emptyList())) {
                     UserModel m = session.users().getUserByUsername(newRealm, member.getUsername());
-                    provider.addMember(org, m);
+                    if (MembershipType.MANAGED.equals(member.getMembershipType())) {
+                        provider.addManagedMember(org, m);
+                    } else {
+                        provider.addMember(org, m);
+                    }
                 }
             }
         }

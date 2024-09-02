@@ -27,11 +27,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import jakarta.ws.rs.core.Response;
 import org.hamcrest.Matchers;
 import org.junit.Test;
+import org.keycloak.admin.client.resource.AuthenticationManagementResource;
 import org.keycloak.admin.client.resource.OrganizationResource;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.admin.client.resource.UsersResource;
@@ -40,6 +42,8 @@ import org.keycloak.exportimport.ExportImportConfig;
 import org.keycloak.exportimport.singlefile.SingleFileExportProviderFactory;
 import org.keycloak.exportimport.singlefile.SingleFileImportProviderFactory;
 import org.keycloak.models.OrganizationModel;
+import org.keycloak.models.utils.DefaultAuthenticationFlows;
+import org.keycloak.representations.idm.AuthenticationExecutionInfoRepresentation;
 import org.keycloak.representations.idm.IdentityProviderRepresentation;
 import org.keycloak.representations.idm.OrganizationRepresentation;
 import org.keycloak.representations.idm.PartialImportRepresentation;
@@ -125,6 +129,12 @@ public class OrganizationExportTest extends AbstractOrganizationTest {
         // login to the organization identity provider and run the configured first broker login flow
         loginPage.login(email, bc.getUserPassword());
         assertThat(appPage.getRequestType(),is(AppPage.RequestType.AUTH_RESPONSE));
+
+        AuthenticationManagementResource flows = testRealm().flows();
+        List<AuthenticationExecutionInfoRepresentation> executions = flows.getExecutions(DefaultAuthenticationFlows.BROWSER_FLOW);
+        assertThat(executions.stream().filter(e -> "Organization".equals(e.getDisplayName())).count(), is(1L));
+        executions = flows.getExecutions(DefaultAuthenticationFlows.FIRST_BROKER_LOGIN_FLOW);
+        assertThat(executions.stream().filter(e -> "First Broker Login - Conditional Organization".equals(e.getDisplayName())).count(), is(1L));
     }
 
     @Test
@@ -163,7 +173,10 @@ public class OrganizationExportTest extends AbstractOrganizationTest {
         exportImport.setAction(ExportImportConfig.ACTION_IMPORT);
         exportImport.setFile(targetFilePath);
         exportImport.runImport();
-        getCleanup().addCleanup(() -> testRealm().remove());
+        getCleanup().addCleanup(() -> {
+            testRealm().remove();
+            getTestContext().getTestRealmReps().clear();
+        });
 
         return testRealm().toRepresentation();
     }
@@ -181,7 +194,7 @@ public class OrganizationExportTest extends AbstractOrganizationTest {
         RealmRepresentation export = testRealm().partialExport(exportGroupsAndRoles, exportClients);
         assertTrue(Optional.ofNullable(export.getGroups()).orElse(List.of()).stream().noneMatch(g -> g.getAttributes().containsKey(OrganizationModel.ORGANIZATION_ATTRIBUTE)));
         assertTrue(Optional.ofNullable(export.getOrganizations()).orElse(List.of()).isEmpty());
-        assertTrue(Optional.ofNullable(export.getIdentityProviders()).orElse(List.of()).stream().noneMatch(g -> g.getConfig().containsKey(OrganizationModel.ORGANIZATION_ATTRIBUTE)));
+        assertTrue(Optional.ofNullable(export.getIdentityProviders()).orElse(List.of()).stream().noneMatch(idp -> Objects.nonNull(idp.getOrganizationId())));
         PartialImportRepresentation rep = new PartialImportRepresentation();
         rep.setUsers(export.getUsers());
         rep.setClients(export.getClients());

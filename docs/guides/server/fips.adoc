@@ -62,6 +62,8 @@ keytool -genkeypair -sigalg SHA512withRSA -keyalg RSA -storepass passwordpasswor
   -dname CN=localhost -keypass passwordpassword
 ----
 
+The `pkcs12` keystores in FIPS mode *do not* manage secret (symmetric) keys. This limitation is imposed by the `BCFIPS` provider which does not allow this type of keys inside the `pkcs12` keystore type.
+
 When the system is in FIPS mode, the default `java.security` file is changed in order to use FIPS enabled security providers, so no additional configuration is needed. Additionally, in the PKCS12 keystore, you can store PBE (password-based encryption) keys simply by using the keytool command, which makes it ideal for using it with {project_name} KeyStore Vault and/or to store configuration properties in the KeyStore Config Source. For more details, see the <@links.server id="configuration"/> and the <@links.server id="vault"/>.
 
 === BCFKS keystore
@@ -180,6 +182,8 @@ For Kerberos/SPNEGO, the security provider `SunJGSS` is not yet fully FIPS compl
 if you want to be FIPS compliant. The `KERBEROS` feature is disabled by default in {project_name} when it is executed on FIPS platform and when security provider is not
 available. Details are in the https://bugzilla.redhat.com/show_bug.cgi?id=2051628[bugzilla].
 
+The algorithm `EdDSA` cannot be used in FIPS mode. Although the current `BCFIPS` provider supports `Ed25519` and `Ed448` curves, the resulting keys do not implement the standard JDK interfaces to manage them (`EdECKey`, `EdECPublicKey`, `EdECPrivateKey`,...), and {project_name} cannot use them for signatures.
+
 == Run the CLI on the FIPS host
 
 If you want to run Client Registration CLI (`kcreg.sh|bat` script) or Admin CLI (`kcadm.sh|bat` script),
@@ -221,9 +225,9 @@ For example in the current directory, you can create sub-directory `files` and a
 * Custom keystore file - named for example `keycloak-fips.keystore.bcfks`
 * Security file `kc.java.security` with added provider for SAML
 
-Then create `Dockerfile` in the current directory similar to this:
+Then create `Containerfile` in the current directory similar to this:
 
-.Dockerfile:
+.Containerfile:
 [source,dockerfile,subs="attributes+"]
 ----
 FROM quay.io/keycloak/keycloak:{containerlabel} as builder

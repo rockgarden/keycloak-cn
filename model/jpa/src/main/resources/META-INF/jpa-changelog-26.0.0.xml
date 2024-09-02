@@ -28,4 +28,68 @@
         <addUniqueConstraint tableName="ORG" columnNames="REALM_ID, ALIAS" constraintName="UK_ORG_ALIAS"/>
     </changeSet>
 
+    <changeSet author="keycloak" id="26.0.0-org-group">
+        <addColumn tableName="KEYCLOAK_GROUP">
+            <column name="TYPE" type="INT" defaultValueNumeric="0"/>
+        </addColumn>
+        <update tableName="KEYCLOAK_GROUP">
+            <column name="TYPE" valueNumeric="0" type="INT"/>
+        </update>
+        <addNotNullConstraint tableName="KEYCLOAK_GROUP" columnName="TYPE" columnDataType="INT"/>
+        <customChange class="org.keycloak.connections.jpa.updater.liquibase.custom.JpaUpdate26_0_0_OrganizationGroupType"/>
+    </changeSet>
+
+    <changeSet author="keycloak" id="26.0.0-org-indexes">
+        <createIndex tableName="ORG_DOMAIN" indexName="IDX_ORG_DOMAIN_ORG_ID">
+            <column name="ORG_ID" type="VARCHAR(255)"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="keycloak" id="26.0.0-org-group-membership">
+        <addColumn tableName="USER_GROUP_MEMBERSHIP">
+            <column name="MEMBERSHIP_TYPE" type="VARCHAR(255)"/>
+        </addColumn>
+        <update tableName="USER_GROUP_MEMBERSHIP">
+            <column name="MEMBERSHIP_TYPE" value="UNMANAGED"/>
+        </update>
+        <addNotNullConstraint tableName="USER_GROUP_MEMBERSHIP" columnName="MEMBERSHIP_TYPE" columnDataType="VARCHAR(255)"/>
+    </changeSet>
+
+    <changeSet author="keycloak" id="31296-persist-revoked-access-tokens">
+        <createTable tableName="REVOKED_TOKEN">
+            <column name="ID" type="VARCHAR(255)">
+                <constraints nullable="false" />
+            </column>
+            <column name="EXPIRE" type="BIGINT">
+                <constraints nullable="false" />
+            </column>
+        </createTable>
+        <addPrimaryKey columnNames="ID" constraintName="CONSTRAINT_RT" tableName="REVOKED_TOKEN"/>
+    </changeSet>
+
+    <changeSet author="keycloak" id="31725-index-persist-revoked-access-tokens">
+        <createIndex indexName="IDX_REV_TOKEN_ON_EXPIRE" tableName="REVOKED_TOKEN">
+            <column name="EXPIRE" />
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="keycloak" id="26.0.0-idps-for-login">
+        <addColumn tableName="IDENTITY_PROVIDER">
+            <column name="ORGANIZATION_ID" type="VARCHAR(255)"/>
+            <column name="HIDE_ON_LOGIN" type="BOOLEAN" defaultValueBoolean="false"/>
+        </addColumn>
+        <createIndex indexName="IDX_IDP_REALM_ORG" tableName="IDENTITY_PROVIDER">
+            <column name="REALM_ID"/>
+            <column name="ORGANIZATION_ID"/>
+        </createIndex>
+        <createIndex indexName="IDX_IDP_FOR_LOGIN" tableName="IDENTITY_PROVIDER">
+            <column name="REALM_ID"/>
+            <column name="ENABLED"/>
+            <column name="LINK_ONLY"/>
+            <column name="HIDE_ON_LOGIN"/>
+            <column name="ORGANIZATION_ID"/>
+        </createIndex>
+        <customChange class="org.keycloak.connections.jpa.updater.liquibase.custom.JpaUpdate26_0_0_IdentityProviderAttributesMigration"/>
+    </changeSet>
+
 </databaseChangeLog>

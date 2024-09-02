@@ -340,12 +340,7 @@ public class UserCacheSession implements UserCache, OnCreateComponent, OnUpdateC
         int notBefore = getDelegate().getNotBeforeOfUser(realm, delegate);
 
         if (Profile.isFeatureEnabled(Profile.Feature.ORGANIZATION)) {
-            // check if provider is enabled and user is managed member of a disabled organization OR provider is disabled and user is managed member
-            OrganizationProvider organizationProvider = session.getProvider(OrganizationProvider.class);
-            OrganizationModel organization = organizationProvider.getByMember(delegate);
-
-            if ((organizationProvider.isEnabled() && organization != null && organization.isManaged(delegate) && !organization.isEnabled()) ||
-                    (!organizationProvider.isEnabled() && organization != null && organization.isManaged(delegate))) {
+            if (isOrganizationDisabled(session, delegate)) {
                 return new ReadOnlyUserModelDelegate(delegate) {
                     @Override
                     public boolean isEnabled() {
@@ -355,13 +350,11 @@ public class UserCacheSession implements UserCache, OnCreateComponent, OnUpdateC
             }
         }
 
-        StorageId storageId = delegate.getFederationLink() != null ?
-                new StorageId(delegate.getFederationLink(), delegate.getId()) : new StorageId(delegate.getId());
-        CachedUser cached = null;
-        UserAdapter adapter = null;
+        CachedUser cached;
+        UserAdapter adapter;
 
-        if (!storageId.isLocal()) {
-            ComponentModel component = realm.getComponent(storageId.getProviderId());
+        if (delegate.getFederationLink() != null) {
+            ComponentModel component = realm.getComponent(delegate.getFederationLink());
             UserStorageProviderModel model = new UserStorageProviderModel(component);
             if (!model.isEnabled()) {
                 return new ReadOnlyUserModelDelegate(delegate) {
@@ -980,5 +973,14 @@ public class UserCacheSession implements UserCache, OnCreateComponent, OnUpdateC
             return ((UserProfileDecorator) getDelegate()).decorateUserProfile(providerId, metadata);
         }
         return List.of();
+    }
+
+    private boolean isOrganizationDisabled(KeycloakSession session, UserModel delegate) {
+        // check if provider is enabled and user is managed member of a disabled organization OR provider is disabled and user is managed member
+        OrganizationProvider organizationProvider = session.getProvider(OrganizationProvider.class);
+
+        return organizationProvider.getByMember(delegate)
+                .anyMatch((org) -> (organizationProvider.isEnabled() && org.isManaged(delegate) && !org.isEnabled()) ||
+                        (!organizationProvider.isEnabled() && org.isManaged(delegate)));
     }
 }

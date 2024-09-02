@@ -20,7 +20,6 @@ package org.keycloak.connections.infinispan.remote;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 
 import org.infinispan.Cache;
@@ -33,6 +32,8 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.util.concurrent.BlockingManager;
 import org.keycloak.connections.infinispan.InfinispanConnectionProvider;
 import org.keycloak.connections.infinispan.TopologyInfo;
+
+import static org.keycloak.connections.infinispan.InfinispanConnectionProvider.skipSessionsCacheIfRequired;
 
 public record RemoteInfinispanConnectionProvider(EmbeddedCacheManager embeddedCacheManager,
                                                  RemoteCacheManager remoteCacheManager,
@@ -60,11 +61,11 @@ public record RemoteInfinispanConnectionProvider(EmbeddedCacheManager embeddedCa
     }
 
     @Override
-    public CompletionStage<Void> migrateToProtostream() {
+    public CompletionStage<Void> migrateToProtoStream() {
         // Only the CacheStore (persistence) stores data in binary format and needs to be deleted.
         // We assume rolling-upgrade between KC 25 and KC 26 is not available, in other words, KC 25 and KC 26 servers are not present in the same cluster.
         var stage = CompletionStages.aggregateCompletionStage();
-        Arrays.stream(CLUSTERED_CACHE_NAMES)
+        skipSessionsCacheIfRequired(Arrays.stream(CLUSTERED_CACHE_NAMES))
                 .map(this::getRemoteCache)
                 .map(RemoteCache::clearAsync)
                 .forEach(stage::dependsOn);
@@ -72,14 +73,14 @@ public record RemoteInfinispanConnectionProvider(EmbeddedCacheManager embeddedCa
     }
 
     @Override
-    public Executor getExecutor(String name) {
-        return GlobalComponentRegistry.componentOf(embeddedCacheManager, BlockingManager.class).asExecutor(name);
-    }
-
-    @Override
     public ScheduledExecutorService getScheduledExecutor() {
         //noinspection removal
         return GlobalComponentRegistry.of(embeddedCacheManager).getComponent(ScheduledExecutorService.class, KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR);
+    }
+
+    @Override
+    public BlockingManager getBlockingManager() {
+        return GlobalComponentRegistry.componentOf(embeddedCacheManager, BlockingManager.class);
     }
 
     @Override

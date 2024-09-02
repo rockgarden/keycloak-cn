@@ -96,6 +96,7 @@
 
         <auth.server.profile/>
         <auth.server.feature/>
+        <auth.server.feature.disable/>
 
         <auth.server.host2>${auth.server.host}</auth.server.host2> <!-- for broker and JS adapter tests; defaults to auth.server.host -->
         <app.server.host>localhost</app.server.host>
@@ -210,6 +211,7 @@
         <browser.strict.cookies>false</browser.strict.cookies>
         <webdriverDownloadBinaries>true</webdriverDownloadBinaries>
         <droneInstantiationTimeoutInSeconds>60</droneInstantiationTimeoutInSeconds>
+        <login.theme.default>keycloak.v2</login.theme.default>
         <github.username/>
         <github.secretToken/>
         <ieDriverArch>Win32</ieDriverArch>
@@ -322,70 +324,6 @@
                                 </artifactItems>
                                 <outputDirectory>${containers.home}</outputDirectory>
                                 <skip>${app.server.skip.unpack}</skip>
-                            </configuration>
-                        </execution>
-                        <execution>
-                            <id>example-wars</id>
-                            <phase>generate-test-resources</phase>
-                            <goals>
-                                <goal>copy</goal>
-                            </goals>
-                            <configuration>
-                                <skip>${skip.copy.example.wars}</skip>
-                                <artifactItems>
-                                    <artifactItem>
-                                        <groupId>org.keycloak.testsuite</groupId>
-                                        <artifactId>hello-world-authz-service</artifactId>
-                                        <version>${project.version}</version>
-                                        <type>war</type>
-                                    </artifactItem>
-                                    <artifactItem>
-                                        <groupId>org.keycloak.testsuite</groupId>
-                                        <artifactId>servlet-authz-app</artifactId>
-                                        <version>${project.version}</version>
-                                        <type>war</type>
-                                    </artifactItem>
-                                    <artifactItem>
-                                        <groupId>org.keycloak.testsuite</groupId>
-                                        <artifactId>servlet-policy-enforcer</artifactId>
-                                        <version>${project.version}</version>
-                                        <type>war</type>
-                                    </artifactItem>
-                                    <artifactItem>
-                                        <groupId>org.keycloak.testsuite</groupId>
-                                        <artifactId>integration-arquillian-test-apps-cors-angular-product</artifactId>
-                                        <version>${project.version}</version>
-                                        <type>war</type>
-                                    </artifactItem>
-                                    <artifactItem>
-                                        <groupId>org.keycloak.testsuite</groupId>
-                                        <artifactId>integration-arquillian-test-apps-cors-database-service</artifactId>
-                                        <version>${project.version}</version>
-                                        <type>war</type>
-                                    </artifactItem>
-                                </artifactItems>
-                                <outputDirectory>${examples.home}</outputDirectory>
-                                <overWriteIfNewer>true</overWriteIfNewer>
-                            </configuration>
-                        </execution>
-                        <execution>
-                            <id>test-apps-realms</id>
-                            <phase>generate-test-resources</phase>
-                            <goals>
-                                <goal>unpack</goal>
-                            </goals>
-                            <configuration>
-                                <artifactItems>
-                                    <artifactItem>
-                                        <groupId>org.keycloak.testsuite</groupId>
-                                        <artifactId>integration-arquillian-test-apps-dist</artifactId>
-                                        <version>${project.version}</version>
-                                        <type>zip</type>
-                                        <includes>**/*realm.json,**/*authz-service.json,**/testsaml.json,**/*-keycloak.json</includes>
-                                    </artifactItem>
-                                </artifactItems>
-                                <outputDirectory>${examples.home}</outputDirectory>
-                                <overWriteIfNewer>true</overWriteIfNewer>
                             </configuration>
                         </execution>
                     </executions>
@@ -517,6 +455,7 @@
 
                             <auth.server.profile>${auth.server.profile}</auth.server.profile>
                             <auth.server.feature>${auth.server.feature}</auth.server.feature>
+                            <auth.server.feature.disable>${auth.server.feature.disable}</auth.server.feature.disable>
 
                             <auth.server.host2>${auth.server.host2}</auth.server.host2> <!-- for broker tests -->
 
@@ -578,6 +517,7 @@
                             <htmlUnitBrowserVersion>${htmlUnitBrowserVersion}</htmlUnitBrowserVersion>
                             <webdriverDownloadBinaries>${webdriverDownloadBinaries}</webdriverDownloadBinaries>
                             <droneInstantiationTimeoutInSeconds>${droneInstantiationTimeoutInSeconds}</droneInstantiationTimeoutInSeconds>
+                            <login.theme.default>${login.theme.default}</login.theme.default>
 
                             <github.username>${github.username}</github.username>
                             <github.secretToken>${github.secretToken}</github.secretToken>
@@ -1727,7 +1667,7 @@
 
                 <dependency>
                     <groupId>org.keycloak</groupId>
-                    <artifactId>keycloak-admin-client</artifactId>
+                    <artifactId>keycloak-admin-client-tests</artifactId>
                 </dependency>
                 <dependency>
                     <groupId>org.keycloak</groupId>
@@ -1739,7 +1679,7 @@
                 </dependency>
                 <dependency>
                     <groupId>org.keycloak</groupId>
-                    <artifactId>keycloak-authz-client</artifactId>
+                    <artifactId>keycloak-authz-client-tests</artifactId>
                 </dependency>
 
                 <!--UNDERTOW-->

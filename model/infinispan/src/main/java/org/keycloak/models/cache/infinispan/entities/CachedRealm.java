@@ -39,8 +39,6 @@ import org.keycloak.models.CibaConfig;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.ClientScopeModel;
 import org.keycloak.models.GroupModel;
-import org.keycloak.models.IdentityProviderMapperModel;
-import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.OAuth2DeviceConfig;
 import org.keycloak.models.OTPPolicy;
 import org.keycloak.models.ParConfig;
@@ -127,7 +125,6 @@ public class CachedRealm extends AbstractExtendableRevisioned {
     protected MultivaluedMap<String, ComponentModel> componentsByParent = new MultivaluedHashMap<>();
     protected MultivaluedMap<String, ComponentModel> componentsByParentAndType = new ConcurrentMultivaluedHashMap<>();
     protected Map<String, ComponentModel> components;
-    protected List<IdentityProviderModel> identityProviders;
 
     protected Map<String, String> browserSecurityHeaders;
     protected Map<String, String> smtpConfig;
@@ -145,7 +142,6 @@ public class CachedRealm extends AbstractExtendableRevisioned {
 
     protected AuthenticationFlowModel browserFlow;
     protected AuthenticationFlowModel registrationFlow;
-    protected AuthenticationFlowModel orgRegistrationFlow;
     protected AuthenticationFlowModel directGrantFlow;
     protected AuthenticationFlowModel resetCredentialsFlow;
     protected AuthenticationFlowModel clientAuthenticationFlow;
@@ -161,18 +157,12 @@ public class CachedRealm extends AbstractExtendableRevisioned {
     protected String defaultRoleId;
     private boolean allowUserManagedAccess;
 
-    public Set<IdentityProviderMapperModel> getIdentityProviderMapperSet() {
-        return identityProviderMapperSet;
-    }
-
     protected List<String> defaultGroups;
     protected List<String> defaultDefaultClientScopes = new LinkedList<>();
     protected List<String> optionalDefaultClientScopes = new LinkedList<>();
     protected boolean internationalizationEnabled;
     protected Set<String> supportedLocales;
     protected String defaultLocale;
-    protected MultivaluedHashMap<String, IdentityProviderMapperModel> identityProviderMappers = new MultivaluedHashMap<>();
-    protected Set<IdentityProviderMapperModel> identityProviderMapperSet;
 
     protected Map<String, String> attributes;
 
@@ -195,7 +185,6 @@ public class CachedRealm extends AbstractExtendableRevisioned {
         loginWithEmailAllowed = model.isLoginWithEmailAllowed();
         duplicateEmailsAllowed = model.isDuplicateEmailsAllowed();
         resetPasswordAllowed = model.isResetPasswordAllowed();
-        identityFederationEnabled = model.isIdentityFederationEnabled();
         editUsernameAllowed = model.isEditUsernameAllowed();
         organizationsEnabled = model.isOrganizationsEnabled();
         //--- brute force settings
@@ -248,17 +237,6 @@ public class CachedRealm extends AbstractExtendableRevisioned {
 
         requiredCredentials = model.getRequiredCredentialsStream().collect(Collectors.toList());
         userActionTokenLifespans = Collections.unmodifiableMap(new HashMap<>(model.getUserActionTokenLifespans()));
-
-        this.identityProviders = model.getIdentityProvidersStream().map(IdentityProviderModel::new)
-                .collect(Collectors.toList());
-        this.identityProviders = Collections.unmodifiableList(this.identityProviders);
-
-        this.identityProviderMapperSet = model.getIdentityProviderMappersStream().collect(Collectors.toSet());
-        for (IdentityProviderMapperModel mapper : identityProviderMapperSet) {
-            identityProviderMappers.add(mapper.getIdentityProviderAlias(), mapper);
-        }
-
-
 
         smtpConfig = model.getSmtpConfig();
         browserSecurityHeaders = model.getBrowserSecurityHeaders();
@@ -561,10 +539,6 @@ public class CachedRealm extends AbstractExtendableRevisioned {
         return passwordPolicy;
     }
 
-    public boolean isIdentityFederationEnabled() {
-        return identityFederationEnabled;
-    }
-
     public Map<String, String> getSmtpConfig() {
         return smtpConfig;
     }
@@ -617,10 +591,6 @@ public class CachedRealm extends AbstractExtendableRevisioned {
         return adminEventsDetailsEnabled;
     }
 
-    public List<IdentityProviderModel> getIdentityProviders() {
-        return identityProviders;
-    }
-
     public boolean isInternationalizationEnabled() {
         return internationalizationEnabled;
     }
@@ -631,10 +601,6 @@ public class CachedRealm extends AbstractExtendableRevisioned {
 
     public String getDefaultLocale() {
         return defaultLocale;
-    }
-
-    public MultivaluedHashMap<String, IdentityProviderMapperModel> getIdentityProviderMappers() {
-        return identityProviderMappers;
     }
 
     public Map<String, AuthenticationFlowModel> getAuthenticationFlows() {
@@ -726,11 +692,11 @@ public class CachedRealm extends AbstractExtendableRevisioned {
     }
 
     public MultivaluedMap<String, ComponentModel> getComponentsByParent() {
-        return componentsByParent;
+        return new MultivaluedHashMap<>(componentsByParent);
     }
 
     public MultivaluedMap<String, ComponentModel> getComponentsByParentAndType() {
-        return componentsByParentAndType;
+        return new MultivaluedHashMap<>(componentsByParentAndType);
     }
 
     public Map<String, ComponentModel> getComponents() {

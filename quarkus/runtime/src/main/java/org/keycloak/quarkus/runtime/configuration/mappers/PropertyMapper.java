@@ -56,6 +56,7 @@ public class PropertyMapper<T> {
             null,
             null,
             false,
+            null,
             null) {
         @Override
         public ConfigValue getConfigValue(String name, ConfigSourceInterceptorContext context) {
@@ -74,10 +75,12 @@ public class PropertyMapper<T> {
     private final String envVarFormat;
     private final String cliFormat;
     private final BiConsumer<PropertyMapper<T>, ConfigValue> validator;
+    private final String description;
 
     PropertyMapper(Option<T> option, String to, BooleanSupplier enabled, String enabledWhen,
                    BiFunction<Optional<String>, ConfigSourceInterceptorContext, Optional<String>> mapper,
-                   String mapFrom, String paramLabel, boolean mask, BiConsumer<PropertyMapper<T>, ConfigValue> validator) {
+                   String mapFrom, String paramLabel, boolean mask, BiConsumer<PropertyMapper<T>, ConfigValue> validator,
+                   String description) {
         this.option = option;
         this.to = to == null ? getFrom() : to;
         this.enabled = enabled;
@@ -89,6 +92,7 @@ public class PropertyMapper<T> {
         this.cliFormat = toCliFormat(option.getKey());
         this.envVarFormat = toEnvVarFormat(getFrom());
         this.validator = validator;
+        this.description = description;
     }
 
     private static Optional<String> defaultTransformer(Optional<String> value, ConfigSourceInterceptorContext context) {
@@ -190,11 +194,21 @@ public class PropertyMapper<T> {
     }
 
     public String getDescription() {
-        return this.option.getDescription();
+        return this.description;
     }
 
+    /**
+     * If {@link #isStrictExpectedValues()} is false, custom values can be provided
+     * Otherwise, only specified expected values can be used.
+     *
+     * @return expected values
+     */
     public List<String> getExpectedValues() {
         return this.option.getExpectedValues();
+    }
+
+    public boolean isStrictExpectedValues() {
+        return this.option.isStrictExpectedValues();
     }
 
     public Optional<T> getDefaultValue() { return this.option.getDefaultValue(); }
@@ -284,9 +298,11 @@ public class PropertyMapper<T> {
         private String enabledWhen = "";
         private String paramLabel;
         private BiConsumer<PropertyMapper<T>, ConfigValue> validator = (mapper, value) -> mapper.validateExpectedValues(value, mapper::validateSingleValue);
+        private String description;
 
         public Builder(Option<T> option) {
             this.option = option;
+            this.description = this.option.getDescription();
         }
 
         public Builder<T> to(String to) {
@@ -301,6 +317,11 @@ public class PropertyMapper<T> {
 
         public Builder<T> paramLabel(String label) {
             this.paramLabel = label;
+            return this;
+        }
+
+        public Builder<T> mapFrom(Option<?> mapFrom) {
+            this.mapFrom = mapFrom.getKey();
             return this;
         }
 
@@ -325,8 +346,35 @@ public class PropertyMapper<T> {
             return this;
         }
 
+        /**
+         * Set the validator, overwriting the current one.
+         */
         public Builder<T> validator(BiConsumer<PropertyMapper<T>, ConfigValue> validator) {
             this.validator = validator;
+            return this;
+        }
+        
+        public Builder<T> appendValidator(BiConsumer<PropertyMapper<T>, ConfigValue> validator) {
+            var current = this.validator;
+            this.validator = (mapper, value) -> {
+                validator.accept(mapper, value);
+                current.accept(mapper, value);
+            };
+            return this;
+        }
+        
+        /**
+         * Similar to {@link #enabledWhen}, but uses the condition as a validator that is appended to the current one. This allows the option
+         * to appear in help. 
+         * @return
+         */
+        public Builder<T> appendValidateEnabled(BooleanSupplier isEnabled, String enabledWhen) {
+            this.appendValidator((mapper, value) -> {
+                if (!isEnabled.getAsBoolean()) {
+                    throw new PropertyException(mapper.getOption().getKey() + " available only when " + enabledWhen);
+                }
+            });
+            this.description = String.format("%s Available only when %s.", this.description, enabledWhen);
             return this;
         }
 
@@ -334,7 +382,7 @@ public class PropertyMapper<T> {
             if (paramLabel == null && Boolean.class.equals(option.getType())) {
                 paramLabel = Boolean.TRUE + "|" + Boolean.FALSE;
             }
-            return new PropertyMapper<T>(option, to, isEnabled, enabledWhen, mapper, mapFrom, paramLabel, isMasked, validator);
+            return new PropertyMapper<T>(option, to, isEnabled, enabledWhen, mapper, mapFrom, paramLabel, isMasked, validator, description);
         }
     }
 
@@ -373,7 +421,7 @@ public class PropertyMapper<T> {
 
     void validateSingleValue(ConfigValue configValue, String v) {
         List<String> expectedValues = getExpectedValues();
-        if (!expectedValues.isEmpty() && !expectedValues.contains(v)) {
+        if (!expectedValues.isEmpty() && !expectedValues.contains(v) && getOption().isStrictExpectedValues()) {
             throw new PropertyException(
                     String.format("Invalid value for option %s: %s.%s", getOptionAndSourceMessage(configValue), v,
                             PropertyMapperParameterConsumer.getExpectedValuesMessage(expectedValues, expectedValues)));

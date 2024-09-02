@@ -79,7 +79,10 @@ public class DefaultBruteForceProtector implements BruteForceProtector {
         userLoginFailure.incrementFailures();
         logger.debugv("new num failures: {0}", userLoginFailure.getNumFailures());
 
-        int waitSeconds = realm.getWaitIncrementSeconds() *  (userLoginFailure.getNumFailures() / realm.getFailureFactor());
+        int waitSeconds = 0;
+        if(!(realm.isPermanentLockout() && realm.getMaxTemporaryLockouts() == 0)) {
+            waitSeconds = realm.getWaitIncrementSeconds() *  (userLoginFailure.getNumFailures() / realm.getFailureFactor());
+        }
         logger.debugv("waitSeconds: {0}", waitSeconds);
         logger.debugv("deltaTime: {0}", deltaTime);
 
@@ -110,7 +113,8 @@ public class DefaultBruteForceProtector implements BruteForceProtector {
             return;
         }
 
-        if(userLoginFailure.getNumTemporaryLockouts() > realm.getMaxTemporaryLockouts()) {
+        if(userLoginFailure.getNumTemporaryLockouts() > realm.getMaxTemporaryLockouts() ||
+                (realm.getMaxTemporaryLockouts() == 0 && userLoginFailure.getNumFailures() >= realm.getFailureFactor())) {
             UserModel user = session.users().getUserById(realm, userId);
             if (user == null) {
                 return;
@@ -180,11 +184,13 @@ public class DefaultBruteForceProtector implements BruteForceProtector {
         logger.trace("sent success event");
     }
 
-    private void processLogin(RealmModel realm, UserModel user, ClientConnection clientConnection, boolean success) {
-        KeycloakSession session = factory.create();
-        ExecutorsProvider provider = session.getProvider(ExecutorsProvider.class);
-        ExecutorService executor = provider.getExecutor("bruteforce");
+    protected void processLogin(RealmModel realm, UserModel user, ClientConnection clientConnection, boolean success) {
+        ExecutorService executor = KeycloakModelUtils.runJobInTransactionWithResult(factory, session -> {
+            ExecutorsProvider provider = session.getProvider(ExecutorsProvider.class);
+            return provider.getExecutor("bruteforce");
+        });
         executor.execute(() -> KeycloakModelUtils.runJobInTransaction(factory, s -> {
+            s.getContext().setRealm(s.realms().getRealm(realm.getId()));
             if (success) {
                 success(s, realm, user.getId());
             } else {

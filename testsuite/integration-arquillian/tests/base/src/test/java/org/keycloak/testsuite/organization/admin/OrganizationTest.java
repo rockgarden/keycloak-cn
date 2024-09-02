@@ -36,6 +36,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import jakarta.ws.rs.NotFoundException;
@@ -43,6 +45,8 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
 import java.util.stream.IntStream;
+
+import org.junit.Assert;
 import org.junit.Test;
 import org.keycloak.admin.client.resource.OrganizationResource;
 import org.keycloak.admin.client.resource.OrganizationsResource;
@@ -56,6 +60,7 @@ import org.keycloak.representations.idm.IdentityProviderRepresentation;
 import org.keycloak.representations.idm.OrganizationDomainRepresentation;
 import org.keycloak.representations.idm.OrganizationRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
+import org.keycloak.testsuite.admin.ApiUtil;
 import org.keycloak.testsuite.arquillian.annotation.EnableFeature;
 import org.keycloak.testsuite.runonserver.RunOnServer;
 import org.keycloak.testsuite.updaters.RealmAttributeUpdater;
@@ -104,12 +109,16 @@ public class OrganizationTest extends AbstractOrganizationTest {
         List<OrganizationRepresentation> expected = new ArrayList<>();
 
         for (int i = 0; i < 5; i++) {
-            expected.add(createOrganization("kc.org." + i));
+            OrganizationRepresentation organization = createOrganization("kc.org." + i);
+            expected.add(organization);
+            organization.setAttributes(Map.of("foo", List.of("foo")));
+            testRealm().organizations().get(organization.getId()).update(organization).close();
         }
 
         List<OrganizationRepresentation> existing = testRealm().organizations().getAll();
         assertFalse(existing.isEmpty());
         assertThat(expected, containsInAnyOrder(existing.toArray()));
+        Assert.assertTrue(existing.stream().map(OrganizationRepresentation::getAttributes).filter(Objects::nonNull).findAny().isEmpty());
     }
 
     @Test
@@ -129,6 +138,7 @@ public class OrganizationTest extends AbstractOrganizationTest {
         assertThat(orgRep.getDomains(), hasSize(2));
         assertThat(orgRep.getDomain("wayneind.com"), not(nullValue()));
         assertThat(orgRep.getDomain("wayneind-gotham.com"), not(nullValue()));
+        assertThat(orgRep.getAttributes(), nullValue());
 
         existing = testRealm().organizations().search("gtbank.net", true, 0, 10);
         assertThat(existing, hasSize(1));
@@ -138,6 +148,7 @@ public class OrganizationTest extends AbstractOrganizationTest {
         assertThat(orgRep.getDomains(), hasSize(2));
         assertThat(orgRep.getDomain("gtbank.com"), not(nullValue()));
         assertThat(orgRep.getDomain("gtbank.net"), not(nullValue()));
+        assertThat(orgRep.getAttributes(), nullValue());
 
         existing = testRealm().organizations().search("nonexistent.org", true, 0, 10);
         assertThat(existing, is(empty()));
@@ -396,7 +407,7 @@ public class OrganizationTest extends AbstractOrganizationTest {
         OrganizationRepresentation existing = createOrganization("acme", "acme.org", "acme.net");
         // disable the organization provider and try to access REST endpoints
         try (RealmAttributeUpdater rau = new RealmAttributeUpdater(testRealm())
-                .setOrganizationEnabled(Boolean.FALSE)
+                .setOrganizationsEnabled(Boolean.FALSE)
                 .update()) {
             OrganizationRepresentation org = createRepresentation("some", "some.com");
 
@@ -503,6 +514,44 @@ public class OrganizationTest extends AbstractOrganizationTest {
             assertEquals(Status.CONFLICT.getStatusCode(), response.getStatus());
             ErrorRepresentation error = response.readEntity(ErrorRepresentation.class);
             assertEquals("A organization with the same alias already exists", error.getErrorMessage());
+        }
+    }
+
+    @Test
+    public void testSpecialCharsAlias() {
+        OrganizationRepresentation org = createRepresentation("acme");
+        OrganizationDomainRepresentation orgDomain = new OrganizationDomainRepresentation();
+        orgDomain.setName("acme.com");
+        org.addDomain(orgDomain);
+
+        org.setAlias("acme&@#!");
+        try (Response response = testRealm().organizations().create(org)) {
+            assertEquals(Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+        }
+
+        // blank alias will be replaced with org name, which is valid
+        org.setAlias("");
+        try (Response response = testRealm().organizations().create(org)) {
+            assertEquals(Status.CREATED.getStatusCode(), response.getStatus());
+            String id = ApiUtil.getCreatedId(response);
+            getCleanup().addCleanup(() -> testRealm().organizations().get(id).delete().close());
+        }
+
+        org.setAlias(" ");
+        try (Response response = testRealm().organizations().create(org)) {
+            assertEquals(Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+        }
+
+        org.setAlias("\n");
+        try (Response response = testRealm().organizations().create(org)) {
+            assertEquals(Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+        }
+
+        // when alias is empty, name is used as alias
+        org.setName("acme@");
+        org.setAlias("");
+        try (Response response = testRealm().organizations().create(org)) {
+            assertEquals(Status.BAD_REQUEST.getStatusCode(), response.getStatus());
         }
     }
 }

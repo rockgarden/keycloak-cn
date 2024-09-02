@@ -49,6 +49,7 @@ import org.keycloak.services.ErrorResponse;
 import org.keycloak.services.resources.KeycloakOpenAPI;
 import org.keycloak.services.resources.admin.AdminEventBuilder;
 import org.keycloak.services.resources.admin.permissions.AdminPermissionEvaluator;
+import org.keycloak.utils.ReservedCharValidator;
 import org.keycloak.utils.SearchQueryUtils;
 import org.keycloak.utils.StringUtil;
 
@@ -90,6 +91,8 @@ public class OrganizationsResource {
         if (organization == null) {
             throw ErrorResponse.error("Organization cannot be null.", Response.Status.BAD_REQUEST);
         }
+
+        ReservedCharValidator.validateNoSpace(organization.getAlias());
 
         try {
             OrganizationModel model = provider.create(organization.getName(), organization.getAlias());
@@ -134,9 +137,9 @@ public class OrganizationsResource {
         // check if are searching orgs by attribute.
         if (StringUtil.isNotBlank(searchQuery)) {
             Map<String, String> attributes = SearchQueryUtils.getFields(searchQuery);
-            return provider.getAllStream(attributes, first, max).map(Organizations::toRepresentation);
+            return provider.getAllStream(attributes, first, max).map(Organizations::toBriefRepresentation);
         } else {
-            return provider.getAllStream(search, exact, first, max).map(Organizations::toRepresentation);
+            return provider.getAllStream(search, exact, first, max).map(Organizations::toBriefRepresentation);
         }
     }
 
@@ -161,5 +164,15 @@ public class OrganizationsResource {
         session.setAttribute(OrganizationModel.class.getName(), organizationModel);
 
         return new OrganizationResource(session, organizationModel, adminEvent);
+    }
+
+    @Path("members/{id}/organizations")
+    @GET
+    @Produces(MediaType.APPLICATION_JSON)
+    @NoCache
+    @Tag(name = KeycloakOpenAPI.Admin.Tags.ORGANIZATIONS)
+    @Operation(summary = "Returns the organizations associated with the user that has the specified id")
+    public Stream<OrganizationRepresentation> getOrganizations(@PathParam("id") String id) {
+        return new OrganizationMemberResource(session, null, adminEvent).getOrganizations(id);
     }
 }

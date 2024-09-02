@@ -240,7 +240,7 @@ public class SocialLoginTest extends AbstractKeycloakTest {
         Policy clientPolicy = management.authz().getStoreFactory().getPolicyStore().create(server, clientPolicyRep);
         management.users().adminImpersonatingPermission().addAssociatedPolicy(clientPolicy);
         management.users().adminImpersonatingPermission().setDecisionStrategy(DecisionStrategy.AFFIRMATIVE);
-        realm.getIdentityProvidersStream().forEach(idp -> {
+        session.identityProviders().getAllStream().forEach(idp -> {
             management.idps().setPermissionsEnabled(idp, true);
             management.idps().exchangeToPermission(idp).addAssociatedPolicy(clientPolicy);
         });
@@ -617,7 +617,7 @@ public class SocialLoginTest extends AbstractKeycloakTest {
         Client httpClient = AdminClientUtil.createResteasyClient();
         Response response = null;
         try {
-            testingClient.server().run(SocialLoginTest::setupClientExchangePermissions);
+            testingClient.server(REALM).run(SocialLoginTest::setupClientExchangePermissions);
 
             WebTarget exchangeUrl = getExchangeUrl(httpClient);
             response = exchangeUrl.request()

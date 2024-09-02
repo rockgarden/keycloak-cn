@@ -1,5 +1,5 @@
 import { NetworkError } from "@keycloak/keycloak-admin-client";
-import { label } from "@keycloak/keycloak-ui-shared";
+import { label, useFetch } from "@keycloak/keycloak-ui-shared";
 import {
   Button,
   Divider,
@@ -32,7 +32,6 @@ import { useRealm } from "../../context/realm-context/RealmContext";
 import { useWhoAmI } from "../../context/whoami/WhoAmI";
 import { toDashboard } from "../../dashboard/routes/Dashboard";
 import { toAddRealm } from "../../realm/routes/AddRealm";
-import { useFetch } from "../../utils/useFetch";
 
 import "./realm-selector.css";
 
@@ -69,7 +68,7 @@ const RealmText = ({ name, displayName, showIsRecent }: RealmTextProps) => {
   const { t } = useTranslation();
 
   return (
-    <Split className="keycloak__realm_selector__list-item-split">
+    <Split>
       <SplitItem isFilled>
         <Stack>
           {displayName ? (
@@ -162,6 +161,7 @@ export const RealmSelector = () => {
       id="realm-select"
       className="keycloak__realm_selector__dropdown"
       isOpen={open}
+      onOpenChange={(isOpen) => setOpen(isOpen)}
       toggle={(ref) => (
         <MenuToggle
           ref={ref}
@@ -171,7 +171,14 @@ export const RealmSelector = () => {
           }}
           isFullWidth
         >
-          {label(t, realmDisplayName, realm)}
+          <Stack className="keycloak__realm_selector__dropdown">
+            {realmDisplayName ? (
+              <StackItem className="pf-v5-u-font-weight-bold" isFilled>
+                {label(t, realmDisplayName)}
+              </StackItem>
+            ) : null}
+            <StackItem isFilled>{realm}</StackItem>
+          </Stack>
         </MenuToggle>
       )}
     >
